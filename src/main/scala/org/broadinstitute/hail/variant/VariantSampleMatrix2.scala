@@ -4,7 +4,7 @@ import java.nio.ByteBuffer
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types.{StructField, StructType}
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{types, DataFrame, Row, SQLContext}
 import org.apache.spark.{SparkContext, SparkEnv}
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.annotations._
@@ -22,15 +22,17 @@ object VariantSampleMatrix2 {
   def apply(metadata: VariantMetadata, df: DataFrame): VariantSampleMatrix2 = new VariantSampleMatrix2(metadata, df)
 
   def convertToVSM2(vds: VariantDataset): VariantSampleMatrix2 = {
+    val sqlContext = new SQLContext(vds.sparkContext)
+
     val vaRequiresConversion = vds.vaSignature.requiresConversion
     val vaSignature = vds.vaSignature
 
     VariantSampleMatrix2(
-    vds.metadata,
-    vds.rdd.map{case (v, va, gs) =>
-      Row.fromSeq(Array(v.toRow, if (vaRequiresConversion) vaSignature.makeSparkWritable(va) else va,
-      Row.fromSeq(gs.toGenotypeStream(v).arr.map(g => g.toRow))))
-    }.toDF
+      vds.metadata,
+      sqlContext.createDataFrame(vds.rdd.map{case (v, va, gs) =>
+      Row.fromSeq(Array(v.toRow, if (vaRequiresConversion) vaSignature.makeSparkWritable(va) else va)) //,
+      //Row.fromSeq(gs.toGenotypeStream(v).arr.map(g => g.toRow))))
+      }, vds.makeSchema())
   )
   }
 
@@ -154,7 +156,7 @@ class RichVSM2(vsm2: VariantSampleMatrix2) {
     StructType(Array(
       StructField("variant", Variant.schema, nullable = false),
       StructField("annotations", vsm2.vaSignature.schema, nullable = false),
-      StructField("gs", GenotypeStream.schema, nullable = false)
+      StructField("gs", GenotypeStream.schema(vsm2.sampleIds), nullable = false)
     ))
 
   def write(sqlContext: SQLContext, sparkContext: SparkContext, dirname: String, compress: Boolean = true) {

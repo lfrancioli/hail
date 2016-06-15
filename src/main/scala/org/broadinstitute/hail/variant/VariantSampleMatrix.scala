@@ -644,9 +644,9 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
 class RichVDS(vds: VariantDataset) {
   def makeSchema(): StructType =
     StructType(Array(
-      StructField("variant", Variant.schema, nullable = false),
-      StructField("annotations", vds.vaSignature.schema, nullable = false),
-      StructField("gs", GenotypeStream.schema, nullable = false)
+      StructField("v", Variant.schema, nullable = false),
+      StructField("va", vds.vaSignature.schema, nullable = false),
+      StructField("gs", GenotypeStream.schema(vds.sampleIds), nullable = false)
     ))
 
   def write(sqlContext: SQLContext, dirname: String, compress: Boolean = true) {
@@ -699,7 +699,7 @@ class RichVDS(vds: VariantDataset) {
         case (v, va, gs) =>
           val r = Row.fromSeq(Array(v.toRow,
             if (vaRequiresConversion) vaSignature.makeSparkWritable(va) else va,
-            gs.toGenotypeStream(v, compress).toRow))
+            gs.toGenotypeStream(v, compress).map{g => g.toRow}))
           //          println(r.getAs[Row](2).toSeq.map(_.asInstanceOf[Array[_]].take(3): IndexedSeq[Any]))
           r
       }

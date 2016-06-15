@@ -122,16 +122,20 @@ case class GenotypeStream(variant: Variant, arr: Array[Genotype])
 
 object GenotypeStream {
 
-  def schema: Array[StructType] = {
-    Array(StructType(Array(
-      StructField("gt", ArrayType(IntegerType), nullable = true),
-      StructField("ad", ArrayType(ArrayType(IntegerType)), nullable = true),
-      StructField("dp", ArrayType(IntegerType), nullable = true),
-      StructField("gq", ArrayType(IntegerType), nullable = true),
-      StructField("pl", ArrayType(ArrayType(IntegerType)), nullable = true),
-      StructField("fr", ArrayType(BooleanType), nullable = false)
-    )))
-  }
+  def schema(sampleIds: IndexedSeq[String]) = StructType(
+  sampleIds.map{s => StructField(s, Genotype.schema, nullable = true)}
+  )
+//  def schema = {
+//      StructType(Array(
+//      StructField("gt", ArrayType(IntegerType), nullable = true),
+//      StructField("ad", ArrayType(ArrayType(IntegerType)), nullable = true),
+//      StructField("dp", ArrayType(IntegerType), nullable = true),
+//      StructField("gq", ArrayType(IntegerType), nullable = true),
+//      StructField("pl", ArrayType(ArrayType(IntegerType)), nullable = true),
+//      StructField("fr", ArrayType(BooleanType), nullable = false)
+//    ))
+//
+//  }
 
 //  def schema: StructType = {
 //    StructType(Array(
