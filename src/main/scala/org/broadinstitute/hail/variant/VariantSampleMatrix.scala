@@ -20,7 +20,7 @@ object VariantSampleMatrix {
   final val fileVersion: Int = 3
 
   def apply[T](metadata: VariantMetadata,
-    rdd: RDD[(Variant, Annotation, Iterable[T])])(implicit tct: ClassTag[T]): VariantSampleMatrix[T] = {
+               rdd: RDD[(Variant, Annotation, Iterable[T])])(implicit tct: ClassTag[T]): VariantSampleMatrix[T] = {
     new VariantSampleMatrix(metadata, rdd)
   }
 
@@ -147,9 +147,9 @@ object VariantSampleMatrix {
     genVariantValues(nSamples, Genotype.gen)
 
   def gen[T](sc: SparkContext,
-    sampleIds: Array[String],
-    variants: Array[Variant],
-    g: (Variant) => Gen[T])(implicit tct: ClassTag[T]): Gen[VariantSampleMatrix[T]] = {
+             sampleIds: Array[String],
+             variants: Array[Variant],
+             g: (Variant) => Gen[T])(implicit tct: ClassTag[T]): Gen[VariantSampleMatrix[T]] = {
     val nSamples = sampleIds.length
     for (vaSig <- Type.genArb; saSig <- Type.genArb; globalSig <- Type.genArb;
          saValues <- Gen.sequence[IndexedSeq[Annotation], Annotation](IndexedSeq.fill[Gen[Annotation]](nSamples)(saSig.genValue));
@@ -184,8 +184,8 @@ object VariantSampleMatrix {
 }
 
 class VariantSampleMatrix[T](val metadata: VariantMetadata,
-  val rdd: RDD[(Variant, Annotation, Iterable[T])])
-  (implicit tct: ClassTag[T]) {
+                             val rdd: RDD[(Variant, Annotation, Iterable[T])])
+                            (implicit tct: ClassTag[T]) {
 
   def sampleIds: IndexedSeq[String] = metadata.sampleIds
 
@@ -210,14 +210,14 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
   def wasSplit: Boolean = metadata.wasSplit
 
   def copy[U](rdd: RDD[(Variant, Annotation, Iterable[U])] = rdd,
-    sampleIds: IndexedSeq[String] = sampleIds,
-    sampleAnnotations: IndexedSeq[Annotation] = sampleAnnotations,
-    globalAnnotation: Annotation = globalAnnotation,
-    saSignature: Type = saSignature,
-    vaSignature: Type = vaSignature,
-    globalSignature: Type = globalSignature,
-    wasSplit: Boolean = wasSplit)
-    (implicit tct: ClassTag[U]): VariantSampleMatrix[U] =
+              sampleIds: IndexedSeq[String] = sampleIds,
+              sampleAnnotations: IndexedSeq[Annotation] = sampleAnnotations,
+              globalAnnotation: Annotation = globalAnnotation,
+              saSignature: Type = saSignature,
+              vaSignature: Type = vaSignature,
+              globalSignature: Type = globalSignature,
+              wasSplit: Boolean = wasSplit)
+             (implicit tct: ClassTag[U]): VariantSampleMatrix[U] =
     new VariantSampleMatrix[U](
       VariantMetadata(sampleIds, sampleAnnotations, globalAnnotation,
         saSignature, vaSignature, globalSignature, wasSplit), rdd)
@@ -250,12 +250,12 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
   }
 
   def mapValuesWithKeys[U](f: (Variant, String, T) => U)
-    (implicit uct: ClassTag[U]): VariantSampleMatrix[U] = {
+                          (implicit uct: ClassTag[U]): VariantSampleMatrix[U] = {
     mapValuesWithAll((v, va, s, sa, g) => f(v, s, g))
   }
 
   def mapValuesWithAll[U](f: (Variant, Annotation, String, Annotation, T) => U)
-    (implicit uct: ClassTag[U]): VariantSampleMatrix[U] = {
+                         (implicit uct: ClassTag[U]): VariantSampleMatrix[U] = {
     val localSampleIdsBc = sampleIdsBc
     val localSampleAnnotationsBc = sampleAnnotationsBc
     copy(rdd = rdd.map { case (v, va, gs) =>
@@ -266,7 +266,7 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
   }
 
   def mapValuesWithPartialApplication[U](f: (Variant, Annotation) => ((String, Annotation) => U))
-    (implicit uct: ClassTag[U]): VariantSampleMatrix[U] = {
+                                        (implicit uct: ClassTag[U]): VariantSampleMatrix[U] = {
     val localSampleIdsBc = sampleIdsBc
     val localSampleAnnotationsBc = sampleAnnotationsBc
 
@@ -307,7 +307,7 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
   }
 
   def mapPartitionsWithAll[U](f: Iterator[(Variant, Annotation, String, Annotation, T)] => Iterator[U])
-    (implicit uct: ClassTag[U]): RDD[U] = {
+                             (implicit uct: ClassTag[U]): RDD[U] = {
     val localSampleIdsBc = sampleIdsBc
     val localSampleAnnotationsBc = sampleAnnotationsBc
 
@@ -506,7 +506,7 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
     seqOp: (U, Variant, Annotation, String, Annotation, T) => U,
     combOp: (U, U) => U,
     mapOp: (Annotation, U) => Annotation)
-    (implicit uct: ClassTag[U]): VariantSampleMatrix[T] = {
+                                    (implicit uct: ClassTag[U]): VariantSampleMatrix[T] = {
 
     // Serialize the zero value to a byte array so that we can apply a new clone of it on each key
     val zeroBuffer = SparkEnv.get.serializer.newInstance().serialize(zeroValue)
@@ -542,7 +542,7 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
   }
 
   def annotateVariants(otherRDD: RDD[(Variant, Annotation)], signature: Type,
-    path: List[String]): VariantSampleMatrix[T] = {
+                       path: List[String]): VariantSampleMatrix[T] = {
     val (newSignature, inserter) = insertVA(signature, path)
     val newRDD = rdd.map { case (v, va, gs) => (v, (va, gs)) }
       .leftOuterJoin(otherRDD)
@@ -551,7 +551,7 @@ class VariantSampleMatrix[T](val metadata: VariantMetadata,
   }
 
   def annotateSamples(annotations: Map[String, Annotation], signature: Type,
-    path: List[String]): VariantSampleMatrix[T] = {
+                      path: List[String]): VariantSampleMatrix[T] = {
 
     val (newSignature, inserter) = insertSA(signature, path)
 
@@ -693,14 +693,14 @@ class RichVDS(vds: VariantDataset) {
     val vaRequiresConversion = vaSignature.requiresConversion
 
 
-//    println(makeSchema())
+    //    println(makeSchema())
     val rowRDD = vds.rdd
       .map {
         case (v, va, gs) =>
           val r = Row.fromSeq(Array(v.toRow,
             if (vaRequiresConversion) vaSignature.makeSparkWritable(va) else va,
             gs.toGenotypeStream(v, compress).toRow))
-//          println(r.getAs[Row](2).toSeq.map(_.asInstanceOf[Array[_]].take(3): IndexedSeq[Any]))
+          //          println(r.getAs[Row](2).toSeq.map(_.asInstanceOf[Array[_]].take(3): IndexedSeq[Any]))
           r
       }
     sqlContext.createDataFrame(rowRDD, makeSchema())

@@ -8,7 +8,7 @@ package object variant {
   type VariantDataset = VariantSampleMatrix[Genotype]
 
   class RichIterableGenotype(val it: Iterable[Genotype]) extends AnyVal {
-    def toGenotypeStream(v: Variant, compress: Boolean): GenotypeStream =
+    def toGenotypeStream(v: Variant): GenotypeStream =
       it match {
         case gs: GenotypeStream => gs
         case _ =>

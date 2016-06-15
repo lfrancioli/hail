@@ -8,6 +8,7 @@ import org.apache.spark.sql.types._
 import org.broadinstitute.hail.ByteIterator
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.check.{Arbitrary, Gen}
+import org.apache.spark.sql.Row
 import org.json4s._
 
 import scala.collection.mutable
@@ -44,15 +45,21 @@ object Foo {
   def f[T](i: Iterable[T], j: Iterable[T]) = i.zip(j)
 }
 
-class Genotype(private val _gt: Int,
-  private val _ad: Array[Int],
-  private val _dp: Int,
-  private val _gq: Int,
-  private val _pl: Array[Int],
-  val fakeRef: Boolean) extends Serializable {
+case class Genotype(private val row: Row) extends Serializable {
+
+private val _gt: Int = row.getAs[Int](0)
+  private val _ad =  row.getAs[mutable.WrappedArray[Int]](1).toArray
+  private val _dp: Int = row.getAs[Int](2)
+  private val _gq: Int = row.getAs[Int](3)
+  private val _pl: Array[Int] = row.getAs[mutable.WrappedArray[Int]](4).toArray
+  val fakeRef: Boolean = row.getAs[Boolean](5)
 
   require(_gt >= -1, s"invalid _gt value: ${_gt}")
   require(_dp >= -1, s"invalid _dp value: ${_dp}")
+
+  def toRow = row
+
+  def this(gt: Int, ad: Array[Int], dp: Int, gq: Int, pl: Array[Int], fakeRef: Boolean) = this(Row(gt, ad, dp, gq, pl, fakeRef))
 
   def check(v: Variant) {
     assert(gt.forall(i => i >= 0 && i < v.nGenotypes))

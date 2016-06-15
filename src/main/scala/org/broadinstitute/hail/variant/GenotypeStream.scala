@@ -7,67 +7,63 @@ import org.apache.spark.sql.types._
 
 import scala.collection.mutable
 
-case class GenotypeArrays(gt: Array[Int], ad: Array[Array[Int]], dp: Array[Int], gq: Array[Int], pl: Array[Array[Int]], fr: Array[Boolean]) {
-  val size = gt.length
-  assert(size == ad.length &&
-    size == dp.length &&
-    size == gq.length &&
-    size == pl.length)
+//case class Genotype2(gt: Int, ad: Array[Int], dp: Int, gq: Int, pl: Array[Int], fakeRef: Boolean)
 
-  def toRow: Row = {
-    Row.fromSeq(Array(gt, ad, dp, gq, pl, fr))
-  }
-}
+//case class GenotypeArrays(gt: Array[Int], ad: Array[Array[Int]], dp: Array[Int], gq: Array[Int], pl: Array[Array[Int]], fr: Array[Boolean]) {
+//  val size = gt.length
+//  assert(size == ad.length &&
+//    size == dp.length &&
+//    size == gq.length &&
+//    size == pl.length)
+//
+//  def toRow: Row = {
+//    Row.fromSeq(Array(gt, ad, dp, gq, pl, fr))
+//  }
+//}
 
-class GenotypeArrayBuilder {
-  private val gtb = new mutable.ArrayBuilder.ofInt
-  private val adb = new mutable.ArrayBuilder.ofRef[Array[Int]]
-  private val dpb = new mutable.ArrayBuilder.ofInt
-  private val gqb = new mutable.ArrayBuilder.ofInt
-  private val plb = new mutable.ArrayBuilder.ofRef[Array[Int]]
-  private val frb = new mutable.ArrayBuilder.ofBoolean
-
-  def +=(gt: Int, ad: Array[Int], dp: Int, gq: Int, pl: Array[Int], fr: Boolean = false): GenotypeArrayBuilder.this.type = {
-    gtb += gt
-    adb += ad
-    dpb += dp
-    gqb += gq
-    plb += pl
-    frb += fr
-    this
-  }
-
-  def result(): GenotypeArrays =
-    GenotypeArrays(gtb.result(), adb.result(), dpb.result(), gqb.result(), plb.result(), frb.result())
-
-  def clear(): GenotypeArrayBuilder.this.type = {
-    gtb.clear()
-    adb.clear()
-    dpb.clear()
-    gqb.clear()
-    plb.clear()
-    frb.clear()
-    this
-  }
-}
+//class GenotypeArrayBuilder {
+//  private val gtb = new mutable.ArrayBuilder.ofInt
+//  private val adb = new mutable.ArrayBuilder.ofRef[Array[Int]]
+//  private val dpb = new mutable.ArrayBuilder.ofInt
+//  private val gqb = new mutable.ArrayBuilder.ofInt
+//  private val plb = new mutable.ArrayBuilder.ofRef[Array[Int]]
+//  private val frb = new mutable.ArrayBuilder.ofBoolean
+//
+//  def +=(gt: Int, ad: Array[Int], dp: Int, gq: Int, pl: Array[Int], fr: Boolean = false): GenotypeArrayBuilder.this.type = {
+//    gtb += gt
+//    adb += ad
+//    dpb += dp
+//    gqb += gq
+//    plb += pl
+//    frb += fr
+//    this
+//  }
+//
+//  def result(): GenotypeArrays =
+//    GenotypeArrays(gtb.result(), adb.result(), dpb.result(), gqb.result(), plb.result(), frb.result())
+//
+//  def clear(): GenotypeArrayBuilder.this.type = {
+//    gtb.clear()
+//    adb.clear()
+//    dpb.clear()
+//    gqb.clear()
+//    plb.clear()
+//    frb.clear()
+//    this
+//  }
+//}
 
 // FIXME use zipWithIndex
-class GenotypeStreamIterator(ga: GenotypeArrays) extends Iterator[Genotype] {
+class GenotypeStreamIterator(arr: Array[Genotype]) extends Iterator[Genotype] {
   var i: Int = 0
-  override val size = ga.size
+  override val size = arr.size
 
   override def hasNext: Boolean = i < size
 
   override def next(): Genotype = {
-    val gt = ga.gt(i)
-    val ad = ga.ad(i)
-    val dp = ga.dp(i)
-    val gq = ga.gq(i)
-    val pl = ga.pl(i)
-    val fr = ga.fr(i)
+    val g = arr(i)
     i += 1
-    new Genotype(gt, ad, dp, gq, pl, fr)
-
+    g
   }
 }
 
@@ -95,11 +91,11 @@ object LZ4Utils {
   }
 }
 
-case class GenotypeStream(variant: Variant, ga: GenotypeArrays)
+case class GenotypeStream(variant: Variant, arr: Array[Genotype])
   extends Iterable[Genotype] {
 
   override def iterator: GenotypeStreamIterator = {
-    new GenotypeStreamIterator(ga)
+    new GenotypeStreamIterator(arr)
   }
 
   override def newBuilder: mutable.Builder[Genotype, GenotypeStream] = {
@@ -122,49 +118,54 @@ case class GenotypeStream(variant: Variant, ga: GenotypeArrays)
   //    }
   //  }
 
-  def toRow: Row = ga.toRow
 }
 
 object GenotypeStream {
 
-  def schema: StructType = {
-    StructType(Array(
+  def schema: Array[StructType] = {
+    Array(StructType(Array(
       StructField("gt", ArrayType(IntegerType), nullable = true),
       StructField("ad", ArrayType(ArrayType(IntegerType)), nullable = true),
       StructField("dp", ArrayType(IntegerType), nullable = true),
       StructField("gq", ArrayType(IntegerType), nullable = true),
       StructField("pl", ArrayType(ArrayType(IntegerType)), nullable = true),
       StructField("fr", ArrayType(BooleanType), nullable = false)
-    ))
+    )))
   }
 
-  def fromRow(v: Variant, row: Row): GenotypeStream = {
+//  def schema: StructType = {
+//    StructType(Array(
+//      StructField("gt", ArrayType(IntegerType), nullable = true),
+//      StructField("ad", ArrayType(ArrayType(IntegerType)), nullable = true),
+//      StructField("dp", ArrayType(IntegerType), nullable = true),
+//      StructField("gq", ArrayType(IntegerType), nullable = true),
+//      StructField("pl", ArrayType(ArrayType(IntegerType)), nullable = true),
+//      StructField("fr", ArrayType(BooleanType), nullable = false)
+//    ))
+//  }
+
+  def fromRow(v: Variant, genotypes: Array[Row]): GenotypeStream = {
 //    println(row)
-    GenotypeStream(v, GenotypeArrays(row.getAs[mutable.WrappedArray[Int]](0).toArray,
-      row.getAs[mutable.WrappedArray[mutable.WrappedArray[Int]]](1).iterator.map(x => if (x == null) null else x.toArray).toArray,
-      row.getAs[mutable.WrappedArray[Int]](2).toArray,
-      row.getAs[mutable.WrappedArray[Int]](3).toArray,
-      row.getAs[mutable.WrappedArray[mutable.WrappedArray[Int]]](4).iterator.map(x => if (x == null) null else x.toArray).toArray,
-      row.getAs[mutable.WrappedArray[Boolean]](5).toArray))
+    GenotypeStream(v, genotypes.map(r => Genotype(r)))
   }
 }
 
 class GenotypeStreamBuilder(variant: Variant)
   extends mutable.Builder[Genotype, GenotypeStream] {
 
-  val gab = new GenotypeArrayBuilder
+  val gab = new mutable.ArrayBuilder.ofRef[Genotype]
   lazy val gb = new GenotypeBuilder(variant)
 
   override def +=(g: Genotype): GenotypeStreamBuilder.this.type = {
     gb.clear()
     gb.set(g)
-    gab += (gb.getGT, gb.getAD, gb.getDP, gb.getGQ, gb.getPL, gb.getFR)
+    gab += new Genotype(gb.getGT, gb.getAD, gb.getDP, gb.getGQ, gb.getPL, gb.getFR)
     this
   }
 
 
   def write(gb: GenotypeBuilder) {
-    gab += (gb.getGT, gb.getAD, gb.getDP, gb.getGQ, gb.getPL, gb.getFR)}
+    gab += new Genotype(gb.getGT, gb.getAD, gb.getDP, gb.getGQ, gb.getPL, gb.getFR)}
 
   def ++=(i: Iterator[Genotype]): GenotypeStreamBuilder.this.type = {
     i.foreach(this += _)

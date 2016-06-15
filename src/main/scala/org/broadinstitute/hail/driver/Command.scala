@@ -2,6 +2,7 @@ package org.broadinstitute.hail.driver
 
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.DataFrame
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.variant.VariantDataset
 import org.kohsuke.args4j.{Argument, CmdLineException, CmdLineParser, Option => Args4jOption}
@@ -12,7 +13,7 @@ import scala.collection.mutable
 case class State(sc: SparkContext,
   sqlContext: SQLContext,
   // FIXME make option
-  vds: VariantDataset = null) {
+  vds: VariantDataset = null, df: DataFrame = null) {
   def hadoopConf = sc.hadoopConfiguration
 }
 

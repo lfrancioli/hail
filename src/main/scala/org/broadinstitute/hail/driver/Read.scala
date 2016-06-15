@@ -1,6 +1,6 @@
 package org.broadinstitute.hail.driver
 
-import org.broadinstitute.hail.variant.VariantSampleMatrix
+import org.broadinstitute.hail.variant.VariantSampleMatrix2
 import org.kohsuke.args4j.{Option => Args4jOption}
 
 object Read extends Command {
@@ -26,7 +26,10 @@ object Read extends Command {
   def run(state: State, options: Options): State = {
     val input = options.input
 
-    val newVDS = VariantSampleMatrix.read(state.sqlContext, input, options.skipGenotypes)
-    state.copy(vds = newVDS)
+    val vsm2 = VariantSampleMatrix2.read(state.sqlContext, input, options.skipGenotypes)
+    println(vsm2.df.printSchema())
+    sys.exit()
+    //state.copy(vds = newVDS)
+    state
   }
 }
