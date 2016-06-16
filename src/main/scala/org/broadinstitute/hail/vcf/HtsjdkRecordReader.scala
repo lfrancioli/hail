@@ -79,8 +79,6 @@ class HtsjdkRecordReader(codec: htsjdk.variant.vcf.VCFCodec) extends Serializabl
 
     // FIXME compress
     val noCall = Genotype()
-    println("here")
-    sys.exit()
     val gsb = new GenotypeStreamBuilder(v)
 
     vc.getGenotypes.iterator.asScala.foreach { g =>

@@ -646,7 +646,7 @@ class RichVDS(vds: VariantDataset) {
     StructType(Array(
       StructField("v", Variant.schema, nullable = false),
       StructField("va", vds.vaSignature.schema, nullable = false),
-      StructField("gs", GenotypeStream.schema(vds.sampleIds), nullable = false)
+      StructField("gs", GenotypeStream.schema2(vds.sampleIds), nullable = false)
     ))
 
   def write(sqlContext: SQLContext, dirname: String, compress: Boolean = true) {

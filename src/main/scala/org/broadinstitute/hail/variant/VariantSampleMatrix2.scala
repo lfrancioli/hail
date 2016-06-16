@@ -30,9 +30,9 @@ object VariantSampleMatrix2 {
     VariantSampleMatrix2(
       vds.metadata,
       sqlContext.createDataFrame(vds.rdd.map{case (v, va, gs) =>
-      Row.fromSeq(Array(v.toRow, if (vaRequiresConversion) vaSignature.makeSparkWritable(va) else va)) //,
-      //Row.fromSeq(gs.toGenotypeStream(v).arr.map(g => g.toRow))))
-      }, vds.makeSchema())
+      Row.fromSeq(Array(v.toRow, if (vaRequiresConversion) vaSignature.makeSparkWritable(va) else va, //,
+      gs.toGenotypeStream(v, false).arr.map(g => g.toRow)))}
+      , vds.makeSchema())
   )
   }
 
@@ -156,7 +156,7 @@ class RichVSM2(vsm2: VariantSampleMatrix2) {
     StructType(Array(
       StructField("variant", Variant.schema, nullable = false),
       StructField("annotations", vsm2.vaSignature.schema, nullable = false),
-      StructField("gs", GenotypeStream.schema(vsm2.sampleIds), nullable = false)
+      StructField("gs", GenotypeStream.schema2(vsm2.sampleIds), nullable = false)
     ))
 
   def write(sqlContext: SQLContext, sparkContext: SparkContext, dirname: String, compress: Boolean = true) {
