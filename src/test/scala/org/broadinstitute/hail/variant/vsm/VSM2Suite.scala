@@ -23,6 +23,7 @@ class VSM2Suite extends SparkSuite {
     val testVCF = "src/test/resources/sample.vcf"
     val output = tmpDir.createTempFile("testDataFrame", ".vds")
     s = ImportVCF.run(s, Array(testVCF))
+    var v = Count.run(s, Array.empty[String])
 //    s = Write.run(s, Array("-o", output) )
 //    sys.exit()
     val vsm2 = VariantSampleMatrix2.convertToVSM2(s.vds)
@@ -46,6 +47,29 @@ class VSM2Suite extends SparkSuite {
       def isHomRef: Boolean = gt == 0
     }
 
+//    class AltAlleleUDT extends UserDefinedType[AltAllele] {
+//      def dataType = StructType(Array(
+//        StructField("ref", StringType, nullable = false),
+//        StructField("alt", StringType, nullable = false)))
+//
+//      def serialize(a: AltAllele) = Row(a.ref, a.alt)
+//
+//      def deserialize(r: Row) = AltAllele(r.getString(0), r.getString(1))
+//    }
+//
+//    class VariantUDT extends UserDefinedType[Variant] {
+//      def dataType = StructType( Seq (
+//        StructField("contig", StringType, false),
+//        StructField("start", IntegerType, false),
+//        StructField("ref", StringType, nullable = false),
+//        StructField("altAlleles", ArrayType(AltAllele.schema, containsNull = false),
+//          nullable = false)))
+//
+//      def serialize(v: Variant) = Row(v.contig, v.start, v.ref, v.altAlleles)
+//
+//      def deserialize(r: Row) = Variant(r.getString(0), r.getInt(1), r.getString(2), r.getSeq[AltAllele](3).toArray)
+//    }
+
     println(df.select(df("v"), df("gs").apply("gt")).rdd.map{r => (r.getAs[Variant](0), r.getSeq[Genotype2](1))}.take(5).mkString("\n"))
     //FIXME: Why Empty Row always being printed out?
 
@@ -54,6 +78,14 @@ class VSM2Suite extends SparkSuite {
       .map{case (v, gs) => v.toString}
       .take(5).mkString("\n"))
 
+
+    def udfGenotypeCountNoCall = udf((gts: Seq[Int]) => gts.count(g => g == null))
+
+    println(df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt"))).show(5))
+
+    println(df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt"))).agg(sum("nNoCalls")).show(5))
+
+    println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).groupBy("gt").count().as("count").show())
 
     class CountGenotypeType() extends UserDefinedAggregateFunction {
       // Schema you get as an input
@@ -68,7 +100,7 @@ class VSM2Suite extends SparkSuite {
       def initialize(buffer: MutableAggregationBuffer) = buffer.update(0, 0) //called once for each partition
       // Similar to seqOp in aggregate
       def update(buffer: MutableAggregationBuffer, input: Row) = {
-        if (!input.isNullAt(0))
+        if (input.isNullAt(0))
           buffer.update(0, buffer.getInt(0) + input.getInt(0))
       }
       // Similar to combOp in aggregate
