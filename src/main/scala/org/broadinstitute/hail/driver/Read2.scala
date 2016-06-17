@@ -1,10 +1,10 @@
 package org.broadinstitute.hail.driver
 
-import org.broadinstitute.hail.variant.VariantSampleMatrix
+import org.broadinstitute.hail.variant.VariantSampleMatrix2
 import org.kohsuke.args4j.{Option => Args4jOption}
 
-object Read extends Command {
-  def name = "read"
+object Read2 extends Command {
+  def name = "read2"
 
   def description = "Load file .vds as the current dataset"
 
@@ -26,7 +26,8 @@ object Read extends Command {
   def run(state: State, options: Options): State = {
     val input = options.input
 
-    val newVDS = VariantSampleMatrix.read(state.sqlContext, input, options.skipGenotypes)
-    state.copy(vds = newVDS)
+    val newVSM2 = VariantSampleMatrix2.read(state.sqlContext, input, options.skipGenotypes)
+    state.copy(vsm2 = newVSM2)
   }
 }
+

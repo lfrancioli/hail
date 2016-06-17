@@ -22,110 +22,71 @@ class VSM2Suite extends SparkSuite {
     var s = State(sc, sqlContext, null)
     val testVCF = "src/test/resources/sample.vcf"
     val output = tmpDir.createTempFile("testDataFrame", ".vds")
+
     s = ImportVCF.run(s, Array(testVCF))
-    var v = Count.run(s, Array.empty[String])
-//    s = Write.run(s, Array("-o", output) )
+    s = Write.run(s, Array("-o", output))
+    s = Read.run(s, Array("-i", output)) // reads vds on disk to VDS
+    s = Read2.run(s, Array("-i", output)) // reads vds on disk to VSM2
+//    s = Count.run(s, Array.empty[String])
 //    sys.exit()
-    val vsm2 = VariantSampleMatrix2.convertToVSM2(s.vds)
-    val df = vsm2.df
-//    println(df.printSchema())
-//    println(df.count())
 //
-//    println(df.select(df("v")).show(5))
-//    println(df.select(df("v.contig")).show(5))
-//    println(df.groupBy("v.contig").count().show())
+//    var v = Count.run(s, Array.empty[String])
+////    s = Write.run(s, Array("-o", output) )
+////    sys.exit()
+//    sys.exit()
+//    val vsm2 = VariantSampleMatrix2.convertToVSM2(s.vds)
+//    s = s.copy(vsm2 = vsm2)
+    s = Count.run(s, Array.empty[String]) // from RDD
+    s = Count2.run(s, Array.empty[String]) // user defined function
+    s = Count3.run(s, Array.empty[String]) // explode and groupby
 //
-//    println(df.select("gs").show(5))
-//    println(df.select(explode(df("gs"))).show(5))
-//    println(df.select(df("gs").apply("gt")).show(5))
-//    println(df.select(df("gs").apply(0)).show(5))
-//    println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).show(5))
-//    println(df.select(df("gs").apply("gt").as("gt")).show(5))
+//    def udfGenotypeCountNoCall = udf((gts: Seq[java.lang.Integer]) => gts.count(g => g == null))
 //
-//    case class Genotype2(gt: Int) {
-//      def isHomRef: Boolean = gt == 0
+//    val numSamples = vsm2.nSamples
+//    val numVariants = df.count()
+//    val numNoCalls = df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt")))
+//      .agg(sum("nNoCalls")).collect().apply(0).getLong(0)
+//
+//    val numGenotypes = numSamples * numVariants
+//    val numCalled = numGenotypes - numNoCalls
+//
+//    println("Count with dataframe:")
+//    println(s"numSamples: ${numSamples}")
+//    println(s"numVariants: ${numVariants}")
+//    println(s"numCalled: ${numGenotypes - numNoCalls}")
+//    println(s"callRate: ${numCalled / numGenotypes.toDouble}")
+//    //println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).groupBy("gt").count().as("count").show())
+//
+//    class CountGenotypeType() extends UserDefinedAggregateFunction {
+//      // Schema you get as an input
+//      def inputSchema = new StructType().add("gt", IntegerType)
+//      // Schema of the row which is used for aggregation
+//      def bufferSchema = new StructType().add("nNoCall", IntegerType)
+//      // Returned type
+//      def dataType = IntegerType
+//      // Self-explaining
+//      def deterministic = true
+//      // zero value
+//      def initialize(buffer: MutableAggregationBuffer) = buffer.update(0, 0) //called once for each partition
+//      // Similar to seqOp in aggregate
+//      def update(buffer: MutableAggregationBuffer, input: Row) = {
+//        if (input.isNullAt(0))
+//          buffer.update(0, buffer.getInt(0) + input.getInt(0))
+//      }
+//      // Similar to combOp in aggregate
+//      def merge(buffer1: MutableAggregationBuffer, buffer2: Row) = {
+//        buffer1.update(0, buffer1.getInt(0) | buffer2.getInt(0))
+//      }
+//      // Called on exit to get return value
+//      def evaluate(buffer: Row) = buffer.getInt(0)
 //    }
-
-//    class AltAlleleUDT extends UserDefinedType[AltAllele] {
-//      def dataType = StructType(Array(
-//        StructField("ref", StringType, nullable = false),
-//        StructField("alt", StringType, nullable = false)))
 //
-//      def serialize(a: AltAllele) = Row(a.ref, a.alt)
+//    sqlContext.udf.register("countNoCallGT", new CountGenotypeType)
 //
-//      def deserialize(r: Row) = AltAllele(r.getString(0), r.getString(1))
-//    }
+////    df.select(gtSelectors:_*).rdd.foreach{r => println(r.toSeq)}
 //
-//    class VariantUDT extends UserDefinedType[Variant] {
-//      def dataType = StructType( Seq (
-//        StructField("contig", StringType, false),
-//        StructField("start", IntegerType, false),
-//        StructField("ref", StringType, nullable = false),
-//        StructField("altAlleles", ArrayType(AltAllele.schema, containsNull = false),
-//          nullable = false)))
-//
-//      def serialize(v: Variant) = Row(v.contig, v.start, v.ref, v.altAlleles)
-//
-//      def deserialize(r: Row) = Variant(r.getString(0), r.getInt(1), r.getString(2), r.getSeq[AltAllele](3).toArray)
-//    }
-
-//    println(df.select(df("v"), df("gs").apply("gt")).rdd.map{r => (r.getAs[Variant](0), r.getSeq[Genotype2](1))}.take(5).mkString("\n"))
-//    //FIXME: Why Empty Row always being printed out?
-//
-//    println(df.select(df("v"), df("gs").apply("gt")).rdd
-//      .map{r => (Variant.fromRow(r.getStruct(0)), r.getSeq(1))}
-//      .map{case (v, gs) => v.toString}
-//      .take(5).mkString("\n"))
-
-    //println(df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt"))).show(5))
-
-    def udfGenotypeCountNoCall = udf((gts: Seq[java.lang.Integer]) => gts.count(g => g == null))
-
-    val numSamples = vsm2.nSamples
-    val numVariants = df.count()
-    val numNoCalls = df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt")))
-      .agg(sum("nNoCalls")).collect().apply(0).getLong(0)
-
-    val numGenotypes = numSamples * numVariants
-    val numCalled = numGenotypes - numNoCalls
-
-    println("Count with dataframe:")
-    println(s"numSamples: ${numSamples}")
-    println(s"numVariants: ${numVariants}")
-    println(s"numCalled: ${numGenotypes - numNoCalls}")
-    println(s"callRate: ${numCalled / numGenotypes.toDouble}")
-    //println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).groupBy("gt").count().as("count").show())
-
-    class CountGenotypeType() extends UserDefinedAggregateFunction {
-      // Schema you get as an input
-      def inputSchema = new StructType().add("gt", IntegerType)
-      // Schema of the row which is used for aggregation
-      def bufferSchema = new StructType().add("nNoCall", IntegerType)
-      // Returned type
-      def dataType = IntegerType
-      // Self-explaining
-      def deterministic = true
-      // zero value
-      def initialize(buffer: MutableAggregationBuffer) = buffer.update(0, 0) //called once for each partition
-      // Similar to seqOp in aggregate
-      def update(buffer: MutableAggregationBuffer, input: Row) = {
-        if (input.isNullAt(0))
-          buffer.update(0, buffer.getInt(0) + input.getInt(0))
-      }
-      // Similar to combOp in aggregate
-      def merge(buffer1: MutableAggregationBuffer, buffer2: Row) = {
-        buffer1.update(0, buffer1.getInt(0) | buffer2.getInt(0))
-      }
-      // Called on exit to get return value
-      def evaluate(buffer: Row) = buffer.getInt(0)
-    }
-
-    sqlContext.udf.register("countNoCallGT", new CountGenotypeType)
-
-//    df.select(gtSelectors:_*).rdd.foreach{r => println(r.toSeq)}
-
-    //s = Write.run(s, Array("-o", output))
-    //s = Read.run(s, Array("-i", output))
+//    //s = Write.run(s, Array("-o", output))
+//    //s = Read.run(s, Array("-i", output))
 
   }
 }

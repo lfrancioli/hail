@@ -184,14 +184,16 @@ class Genotype(private val _gt: Int,
 object Genotype {
   def apply(gtx: Int): Genotype = new Genotype(gtx, null, -1, -1, null, false)
 
-  def apply(row: Row): Genotype = new Genotype(
-    row.getAs[Int](0),
-    row.getAs[mutable.WrappedArray[Int]](1).toArray,
-    row.getAs[Int](2),
-    row.getAs[Int](3),
-    row.getAs[mutable.WrappedArray[Int]](4).toArray,
-    row.getAs[Boolean](5)
-  )
+  def apply(row: Row): Genotype = {
+    new Genotype(
+      if (row.isNullAt(0)) -1 else row.getAs[Int](0),
+      if (row.isNullAt(1)) null else row.getAs[mutable.WrappedArray[Int]](1).toArray,
+      if (row.isNullAt(2)) -1 else row.getAs[Int](2),
+      if (row.isNullAt(3)) -1 else row.getAs[Int](3),
+      if (row.isNullAt(4)) null else row.getAs[mutable.WrappedArray[Int]](4).toArray,
+      row.getAs[Boolean](5)
+    )
+  }
 
   def apply(gt: Option[Int] = None,
     ad: Option[Array[Int]] = None,

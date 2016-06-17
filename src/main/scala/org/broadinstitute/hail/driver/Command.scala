@@ -4,7 +4,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.DataFrame
 import org.broadinstitute.hail.Utils._
-import org.broadinstitute.hail.variant.VariantDataset
+import org.broadinstitute.hail.variant.{VariantSampleMatrix2, VariantDataset}
 import org.kohsuke.args4j.{Argument, CmdLineException, CmdLineParser, Option => Args4jOption}
 
 import scala.collection.JavaConverters._
@@ -13,7 +13,7 @@ import scala.collection.mutable
 case class State(sc: SparkContext,
   sqlContext: SQLContext,
   // FIXME make option
-  vds: VariantDataset = null, df: DataFrame = null) {
+  vds: VariantDataset = null, vsm2: VariantSampleMatrix2 = null) {
   def hadoopConf = sc.hadoopConfiguration
 }
 
@@ -51,6 +51,8 @@ object ToplevelCommands {
   register(Cache)
   register(ImportAnnotations)
   register(Count)
+  register(Count2)
+  register(Count3)
   register(DownsampleVariants)
   register(ExportPlink)
   register(ExportGenotypes)
@@ -75,6 +77,7 @@ object ToplevelCommands {
   register(PCA)
   register(Persist)
   register(Read)
+  register(Read2)
   register(RenameSamples)
   register(Repartition)
   register(SampleQC)
