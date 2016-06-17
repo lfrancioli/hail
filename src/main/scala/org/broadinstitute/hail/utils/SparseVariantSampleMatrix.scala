@@ -15,7 +15,7 @@ import scala.collection.mutable.{ArrayBuffer, ArrayBuilder, ListBuffer, Map}
 import scala.reflect.ClassTag
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.expr
-import org.broadinstitute.hail.expr.{BaseType, Parser, TEmpty, Type}
+import org.broadinstitute.hail.expr.{BaseType, EvalContext, Parser, TStruct, Type}
 
 
 /**
@@ -68,7 +68,7 @@ object SparseVariantSampleMatrixRRDBuilder {
     val sa = sc.broadcast(buildSamplesAnnotations(vsm,sampleAnnotations))
 
     //Create annotations signature / querier / inserter
-    var newVA : Type = TEmpty
+    var newVA : Type = TStruct.empty
     val inserterBuilder = mutable.ArrayBuilder.make[Inserter]
     val querierBuilder = mutable.ArrayBuilder.make[Querier]
     variantAnnotations.foreach({a =>
@@ -108,9 +108,9 @@ object SparseVariantSampleMatrixRRDBuilder {
 
 
   private def buildSamplesAnnotations(vsm: VariantSampleMatrix[Genotype], sampleAnnotations: Array[String]) : (Type,IndexedSeq[Annotation]) = {
-    if(sampleAnnotations.isEmpty){ return (TEmpty,IndexedSeq[Annotation]())}
+    if(sampleAnnotations.isEmpty){ return (TStruct.empty,IndexedSeq[Annotation]())}
 
-    var newSA : Type = TEmpty
+    var newSA : Type = TStruct.empty
     val inserterBuilder = mutable.ArrayBuilder.make[Inserter]
     val querierBuilder = mutable.ArrayBuilder.make[Querier]
     sampleAnnotations.foreach({a =>
@@ -142,7 +142,7 @@ object SparseVariantSampleMatrixRRDBuilder {
 
 }
 
-class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignature:Type = TEmpty, val saSignature: Type = TEmpty, val sampleAnnotations: IndexedSeq[Annotation] = IndexedSeq[Annotation]()) extends Serializable {
+class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignature:Type = TStruct.empty, val saSignature: Type = TStruct.empty, val sampleAnnotations: IndexedSeq[Annotation] = IndexedSeq[Annotation]()) extends Serializable {
 
   val nSamples = sampleIDs.length
   lazy val samplesIndex = sampleIDs.zipWithIndex.toMap
@@ -281,10 +281,10 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
   def queryVA(code: String): (BaseType, Querier) = {
 
     val st = immutable.Map(Annotation.VARIANT_HEAD ->(0, vaSignature))
-    val a = new ArrayBuffer[Any]
-    a += null
+    val ec = EvalContext(st)
+    val a = ec.a
 
-    val (t, f) = Parser.parse(code, st, a)
+    val (t, f) = Parser.parse(code, ec)
 
     val f2: Annotation => Option[Any] = { annotation =>
       a(0) = annotation
@@ -297,10 +297,10 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
   def querySA(code: String): (BaseType, Querier) = {
 
     val st = immutable.Map(Annotation.SAMPLE_HEAD ->(0, saSignature))
-    val a = new ArrayBuffer[Any]
-    a += null
+    val ec = EvalContext(st)
+    val a = ec.a
 
-    val (t, f) = Parser.parse(code, st, a)
+    val (t, f) = Parser.parse(code, ec)
 
     val f2: Annotation => Option[Any] = { annotation =>
       a(0) = annotation

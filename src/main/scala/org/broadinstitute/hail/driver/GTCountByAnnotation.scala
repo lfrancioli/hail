@@ -19,7 +19,9 @@ object GTCountByAnnotation extends Command {
 
   def description = "Count number of alternate alleles per sample per given annotation. At the moment, the binning is naive => each value gets a bin!"
 
-  override def supportsMultiallelic = true
+  def supportsMultiallelic = true
+
+  def requiresVDS = true
 
   class Options extends BaseOptions {
     @Args4jOption(required = true, name = "-o", aliases = Array("--output"), usage = "Output filename")

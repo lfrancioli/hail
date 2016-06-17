@@ -20,8 +20,13 @@ import scala.language.postfixOps
 object SingletonLDinTrios extends Command {
 
   def name = "singletonLDinTrios"
+
   def description = "Looks at pairs of rare variants where both variants are both in at least one of the parents of one of the trios" +
     "and the other isn't. Compute how many are in/out of phase, stratified by the AC in ExAC (no binning here so filter wisely!)"
+
+  def supportsMultiallelic = false
+
+  def requiresVDS = true
 
   class Options extends BaseOptions {
     @Args4jOption(required = true, name = "-i", aliases = Array("--controls"), usage = "Input ExAC .vds file")
@@ -540,7 +545,7 @@ object SingletonLDinTrios extends Command {
     val autosomes = Range(1,23).map({c: Int => c.toString}).toSet
 
     //Filter variants that are on autosomes and have a gene annotation
-    def autosomeFilter = {(v: Variant, va: Annotation) => autosomes.contains(v.contig) && triosGeneAnn(va).isDefined}
+    def autosomeFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => autosomes.contains(v.contig) && triosGeneAnn(va).isDefined}
 
     //List individuals from trios where all family members are present
     //In case of multiple offspring, keep only one
@@ -584,7 +589,7 @@ object SingletonLDinTrios extends Command {
     val exacGeneAnn = exacVDS.queryVA(options.gene_annotation)._2
 
     //Only keep variants that are of interest and have a gene annotation (although they should match those of trios!)
-    def variantsOfInterestFilter = {(v: Variant, va: Annotation) => exacGeneAnn(va).isDefined && bcUniqueVariants.value.contains(v.toString)}
+    def variantsOfInterestFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => exacGeneAnn(va).isDefined && bcUniqueVariants.value.contains(v.toString)}
 
     val exacRDD = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(exacVDS.filterVariants(variantsOfInterestFilter).
       filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s)), state.sc, partitioner)(

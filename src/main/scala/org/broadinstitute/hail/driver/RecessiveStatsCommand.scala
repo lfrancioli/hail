@@ -15,7 +15,10 @@ object RecessiveStatsCommand extends Command {
     def name = "recessive stats"
 
     def description = "Computes the a per-gene Poisson test on enrichment for rare functional variation give a set of cases and controls"
-    override def supportsMultiallelic = true
+
+    def supportsMultiallelic = true
+
+    def requiresVDS = true
 
     class Options extends BaseOptions {
       @Args4jOption(required = true, name = "-i", aliases = Array("--controls"), usage = "Input controls .vds file")
