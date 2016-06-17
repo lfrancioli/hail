@@ -28,24 +28,23 @@ class VSM2Suite extends SparkSuite {
 //    sys.exit()
     val vsm2 = VariantSampleMatrix2.convertToVSM2(s.vds)
     val df = vsm2.df
-    val sampleIds = vsm2.sampleIds
-    println(df.printSchema())
-    println(df.count())
-
-    println(df.select(df("v")).show(5))
-    println(df.select(df("v.contig")).show(5))
-    println(df.groupBy("v.contig").count().show())
-
-    println(df.select("gs").show(5))
-    println(df.select(explode(df("gs"))).show(5))
-    println(df.select(df("gs").apply("gt")).show(5))
-    println(df.select(df("gs").apply(0)).show(5))
-    println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).show(5))
-    println(df.select(df("gs").apply("gt").as("gt")).show(5))
-
-    case class Genotype2(gt: Int) {
-      def isHomRef: Boolean = gt == 0
-    }
+//    println(df.printSchema())
+//    println(df.count())
+//
+//    println(df.select(df("v")).show(5))
+//    println(df.select(df("v.contig")).show(5))
+//    println(df.groupBy("v.contig").count().show())
+//
+//    println(df.select("gs").show(5))
+//    println(df.select(explode(df("gs"))).show(5))
+//    println(df.select(df("gs").apply("gt")).show(5))
+//    println(df.select(df("gs").apply(0)).show(5))
+//    println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).show(5))
+//    println(df.select(df("gs").apply("gt").as("gt")).show(5))
+//
+//    case class Genotype2(gt: Int) {
+//      def isHomRef: Boolean = gt == 0
+//    }
 
 //    class AltAlleleUDT extends UserDefinedType[AltAllele] {
 //      def dataType = StructType(Array(
@@ -70,22 +69,32 @@ class VSM2Suite extends SparkSuite {
 //      def deserialize(r: Row) = Variant(r.getString(0), r.getInt(1), r.getString(2), r.getSeq[AltAllele](3).toArray)
 //    }
 
-    println(df.select(df("v"), df("gs").apply("gt")).rdd.map{r => (r.getAs[Variant](0), r.getSeq[Genotype2](1))}.take(5).mkString("\n"))
-    //FIXME: Why Empty Row always being printed out?
+//    println(df.select(df("v"), df("gs").apply("gt")).rdd.map{r => (r.getAs[Variant](0), r.getSeq[Genotype2](1))}.take(5).mkString("\n"))
+//    //FIXME: Why Empty Row always being printed out?
+//
+//    println(df.select(df("v"), df("gs").apply("gt")).rdd
+//      .map{r => (Variant.fromRow(r.getStruct(0)), r.getSeq(1))}
+//      .map{case (v, gs) => v.toString}
+//      .take(5).mkString("\n"))
 
-    println(df.select(df("v"), df("gs").apply("gt")).rdd
-      .map{r => (Variant.fromRow(r.getStruct(0)), r.getSeq(1))}
-      .map{case (v, gs) => v.toString}
-      .take(5).mkString("\n"))
+    //println(df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt"))).show(5))
 
+    def udfGenotypeCountNoCall = udf((gts: Seq[java.lang.Integer]) => gts.count(g => g == null))
 
-    def udfGenotypeCountNoCall = udf((gts: Seq[Int]) => gts.count(g => g == null))
+    val numSamples = vsm2.nSamples
+    val numVariants = df.count()
+    val numNoCalls = df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt")))
+      .agg(sum("nNoCalls")).collect().apply(0).getLong(0)
 
-    println(df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt"))).show(5))
+    val numGenotypes = numSamples * numVariants
+    val numCalled = numGenotypes - numNoCalls
 
-    println(df.withColumn("nNoCalls", udfGenotypeCountNoCall(df("gs").apply("gt"))).agg(sum("nNoCalls")).show(5))
-
-    println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).groupBy("gt").count().as("count").show())
+    println("Count with dataframe:")
+    println(s"numSamples: ${numSamples}")
+    println(s"numVariants: ${numVariants}")
+    println(s"numCalled: ${numGenotypes - numNoCalls}")
+    println(s"callRate: ${numCalled / numGenotypes.toDouble}")
+    //println(df.select(df("v"), explode(df("gs").apply("gt")).as("gt")).groupBy("gt").count().as("count").show())
 
     class CountGenotypeType() extends UserDefinedAggregateFunction {
       // Schema you get as an input
