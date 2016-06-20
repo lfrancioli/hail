@@ -1,18 +1,15 @@
 package org.broadinstitute.hail.driver
 
-import breeze.linalg.{DenseVector, max, sum}
-import breeze.numerics.abs
 import org.apache.spark.HashPartitioner
 import org.apache.spark.storage.StorageLevel
 import org.broadinstitute.hail.{Logging, RichRDD}
 import org.broadinstitute.hail.annotations._
-import org.broadinstitute.hail.methods.Pedigree
+import org.broadinstitute.hail.methods.{Pedigree, Phasing}
 import org.broadinstitute.hail.utils.{SparseVariantSampleMatrix, SparseVariantSampleMatrixRRDBuilder}
 import org.broadinstitute.hail.variant._
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.expr.BaseType
-import org.broadinstitute.hail.variant.GenotypeType._
 
 import scala.collection.mutable
 import scala.language.postfixOps
@@ -307,7 +304,7 @@ object SingletonLDinTrios extends Command {
 
         //Compute whether on the same haplotype based on EM using ExAC
         //info("Computing ExAC phase for variant-pair:" + v1 +" | "+v2)
-        if(em) { v.setEMHap(probOnSameHaplotypeWithEM(exac, v1, v2)) }
+        if(em) { v.setEMHap( Phasing.probOnSameHaplotypeWithEM(exac.getGenotypeCounts(v1, v2))) }
 
         return v
       }
@@ -409,124 +406,6 @@ object SingletonLDinTrios extends Command {
           }).keySet).size) >= minSamples)
         case _ => None
       }
-
-    }
-
-    private def probOnSameHaplotypeWithEM(exac: SparseVariantSampleMatrix, variantID1: String, variantID2: String) : Option[Double] = {
-      phaseWithEM(exac,variantID1,variantID2) match{
-        case Some(haplotypes) =>
-          return Some(haplotypes(0) * haplotypes(3) / (haplotypes(1) * haplotypes(2) + haplotypes(0) * haplotypes(3)))
-        case None => None
-      }
-
-    }
-
-    /**Returns a vector containing the estimated number of haplotypes
-      * (0) AB
-      * (1) Ab
-      * (2) aB
-      * (3) ab
-      */
-    private def phaseWithEM(exac: SparseVariantSampleMatrix, variantID1: String, variantID2: String) : Option[DenseVector[Double]] = {
-
-      /**Count the number of individuals with different genotype combinations
-        * (0) AABB
-        * (1) AaBB
-        * (2) aaBB
-        * (3) AABb
-        * (4) AaBb
-        * (5) aaBb
-        * (6) AAbb
-        * (7) Aabb
-        * (8) aabb
-        */
-        def getIndex(g1: GenotypeType, g2: GenotypeType) : Int = {
-        (g1, g2) match {
-          case (HomRef, HomRef) => 0
-          case (Het, HomRef) => 1
-          case (HomVar, HomRef) => 2
-          case (HomRef, Het) => 3
-          case (Het, Het) => 4
-          case (HomVar, Het) => 5
-          case (HomRef, HomVar) => 6
-          case (Het, HomVar) => 7
-          case (HomVar,HomVar) => 8
-          case _ => -1
-        }
-      }
-
-      val gtCounts = new DenseVector(new Array[Int](9))
-
-      val v1_gt = exac.getVariant(variantID1)
-      val v2_gt = exac.getVariant(variantID2)
-
-      //Add all HomRef/HomRef counts
-      gtCounts(0) += exac.nSamples - (v1_gt.keys.toSet ++ v2_gt.keys.toSet ).size
-
-      //Add all non-homref genotype counts from v1
-      v1_gt.foreach({
-        case (s,g1) =>
-          val index = v2_gt.get(s) match {
-            case Some(g2) =>
-              v2_gt.remove(s)
-              getIndex(g1.gtType, g2.gtType)
-            case None =>
-              getIndex(g1.gtType,GenotypeType.HomRef)
-          }
-          if(index > -1){ gtCounts(index) += 1 }
-      })
-
-      //Add all v2-specific counts
-      v2_gt.foreach({
-        case (s,g2) => if(g2.isCalled){ gtCounts(getIndex(GenotypeType.HomRef,g2.gtType)) += 1 }
-      })
-
-      val nSamples = sum(gtCounts)
-
-      //Needs some non-ref samples to compute
-      if(gtCounts(0) >= nSamples){ return None}
-
-      val nHaplotypes = 2.0*nSamples.toDouble
-
-      /**
-        * Constant quantities for each of the different haplotypes:
-        * n.AB => 2*n.AABB + n.AaBB + n.AABb
-        * n.Ab => 2*n.AAbb + n.Aabb + n.AABb
-        * n.aB => 2*n.aaBB + n.AaBB + n.aaBb
-        * n.ab => 2*n.aabb + n.aaBb + n.Aabb
-        */
-      val const_counts = new DenseVector(Array[Double](
-        2.0*gtCounts(0) + gtCounts(1) + gtCounts(3), //n.AB
-        2.0*gtCounts(6) + gtCounts(3) + gtCounts(7), //n.Ab
-        2.0*gtCounts(2) + gtCounts(1) + gtCounts(5), //n.aB
-        2.0*gtCounts(8) + gtCounts(5) + gtCounts(7)  //n.ab
-      ))
-
-      //info("EM initialization done.")
-
-      //Initial estimate with AaBb contributing equally to each haplotype
-      var p_next = (const_counts :+ new DenseVector(Array.fill[Double](4)(gtCounts(4)/2.0))) :/ nHaplotypes
-      var p_cur = p_next :+ 1.0
-
-      var i = 0
-
-      //EM
-      while(max(abs(p_next :- p_cur)) > 1e-7){
-        i += 1
-        p_cur = p_next
-
-        p_next = (const_counts :+
-          (new DenseVector(Array[Double](
-            p_cur(0)*p_cur(3), //n.AB
-            p_cur(1)*p_cur(2), //n.Ab
-            p_cur(1)*p_cur(2), //n.aB
-            p_cur(0)*p_cur(3)  //n.ab
-          )) :* gtCounts(4) / ((p_cur(0)*p_cur(3))+(p_cur(1)*p_cur(2))) )
-          ) :/ nHaplotypes
-
-      }
-      //info("EM converged after " + i.toString + " iterations.")
-      return Some(p_next :* nHaplotypes)
 
     }
 

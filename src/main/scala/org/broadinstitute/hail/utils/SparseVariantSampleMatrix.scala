@@ -1,19 +1,15 @@
 package org.broadinstitute.hail.utils
 
-import java.nio.ByteBuffer
-
-import breeze.linalg.SparseVector
-import org.apache.spark.{Partitioner, SparkContext, SparkEnv}
+import breeze.linalg.{DenseVector}
+import org.apache.spark.{Partitioner, SparkContext}
 import org.apache.spark.rdd.RDD
 import org.broadinstitute.hail.annotations._
 import org.broadinstitute.hail.variant.{Genotype, GenotypeType, Variant, VariantSampleMatrix}
 import org.broadinstitute.hail.variant.GenotypeType._
 
-import scala.collection.immutable.VectorBuilder
 import scala.collection.{immutable, mutable}
-import scala.collection.mutable.{ArrayBuffer, ArrayBuilder, ListBuffer, Map}
+import scala.collection.mutable.{ArrayBuffer, ArrayBuilder, Map}
 import scala.reflect.ClassTag
-import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.expr
 import org.broadinstitute.hail.expr.{BaseType, EvalContext, Parser, TStruct, Type}
 
@@ -390,6 +386,70 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
    })
 
  }
+
+
+  /** Compute genotype counts over a pair of variants
+    *
+    * @param variantID1 ID of the first variant
+    * @param variantID2 ID of the second variant
+    * @return Counts of individuals with different genotype combinations
+    * (0) AABB
+    * (1) AaBB
+    * (2) aaBB
+    * (3) AABb
+    * (4) AaBb
+    * (5) aaBb
+    * (6) AAbb
+    * (7) Aabb
+    * (8) aabb
+    */
+  def getGenotypeCounts(variantID1: String, variantID2: String) : DenseVector[Int] = {
+
+
+    def getIndex(g1: GenotypeType, g2: GenotypeType) : Int = {
+      (g1, g2) match {
+        case (HomRef, HomRef) => 0
+        case (Het, HomRef) => 1
+        case (HomVar, HomRef) => 2
+        case (HomRef, Het) => 3
+        case (Het, Het) => 4
+        case (HomVar, Het) => 5
+        case (HomRef, HomVar) => 6
+        case (Het, HomVar) => 7
+        case (HomVar,HomVar) => 8
+        case _ => -1
+      }
+    }
+
+    val gtCounts = new DenseVector(new Array[Int](9))
+
+    val v1_gt = getVariant(variantID1)
+    val v2_gt = getVariant(variantID2)
+
+    //Add all HomRef/HomRef counts
+    gtCounts(0) += this.nSamples - (v1_gt.keys.toSet ++ v2_gt.keys.toSet ).size
+
+    //Add all non-homref genotype counts from v1
+    v1_gt.foreach({
+      case (s,g1) =>
+        val index = v2_gt.get(s) match {
+          case Some(g2) =>
+            v2_gt.remove(s)
+            getIndex(g1.gtType, g2.gtType)
+          case None =>
+            getIndex(g1.gtType,GenotypeType.HomRef)
+        }
+        if(index > -1){ gtCounts(index) += 1 }
+    })
+
+    //Add all v2-specific counts
+    v2_gt.foreach({
+      case (s,g2) => if(g2.isCalled){ gtCounts(getIndex(GenotypeType.HomRef,g2.gtType)) += 1 }
+    })
+
+    return(gtCounts)
+
+  }
 
  /**def cumulativeAF: Double = {
 
