@@ -75,6 +75,7 @@ object ToplevelCommands {
   register(SplitMulti)
   register(PCA)
   register(Persist)
+  register(RareVariantsBurden)
   register(Read)
   register(ReadKudu)
   register(RenameSamples)

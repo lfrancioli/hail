@@ -274,6 +274,27 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
     return sample
   }
 
+  //Returns a Map of Variants -> Genotype for that sample
+  //In case of an absent sample, returns an empty map
+  def getSampleAsList(sampleID: String): List[(String,Genotype)] = {
+    getSampleAsList(samplesIndex.getOrElse(sampleID,-1))
+  }
+
+  //Returns a Map of Variants -> Genotype for that sample
+  //In case of an absent sample, returns an empty map
+  def getSampleAsList(sampleIndex: Int): List[(String,Genotype)] = {
+
+    if(variants.isEmpty){return List[(String,Genotype)]()}
+
+    if(sampleIndex < 0) { return List[(String,Genotype)]() }
+
+    if(s_vindices.isEmpty){ buildSampleView() }
+
+    (for (i <- s_vindices(sampleIndex).indices) yield{
+      (variants(s_vindices(sampleIndex)(i)), Genotype(s_genotypes(sampleIndex)(i)))
+    }).toList
+  }
+
   def queryVA(code: String): (BaseType, Querier) = {
 
     val st = immutable.Map(Annotation.VARIANT_HEAD ->(0, vaSignature))
@@ -314,6 +335,10 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
 
   def getSampleAnnotation(sampleID: String, querier: Querier): Option[Any] ={
     querier(sampleAnnotations(samplesIndex(sampleID)))
+  }
+
+  def getSampleAnnotation(sampleIndex: Int, querier: Querier): Option[Any] ={
+    querier(sampleAnnotations(sampleIndex))
   }
 
   def getVariantAnnotation(variantID: String, annotation: String) : Option[Any] = {
