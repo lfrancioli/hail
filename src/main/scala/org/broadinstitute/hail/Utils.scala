@@ -593,7 +593,8 @@ class RichIterator[T](val it: Iterator[T]) extends AnyVal {
   def pipe(pb: ProcessBuilder,
     printHeader: (String => Unit) => Unit,
     printElement: (String => Unit, T) => Unit,
-    printFooter: (String => Unit) => Unit): Iterator[String] = {
+    printFooter: (String => Unit) => Unit,
+    printSep: (String => Unit) => Unit): Iterator[String] = {
 
     val command = pb.command().asScala.mkString(" ")
 
@@ -613,9 +614,15 @@ class RichIterator[T](val it: Iterator[T]) extends AnyVal {
       override def run() {
         val out = new PrintWriter(proc.getOutputStream)
 
-        printHeader(out.println)
-        it.foreach(x => printElement(out.println, x))
-        printFooter(out.println)
+        printHeader(out.print)
+        it.foreach { x =>
+          if (it.hasNext) {
+            printElement(out.print, x)
+            printSep(out.print)
+          } else
+            printElement(out.print, x)
+        }
+        printFooter(out.print)
         out.close()
       }
     }.start()
@@ -714,7 +721,7 @@ object TempDir {
         hadoopMkdir(dirname, hConf)
 
         val fs = hadoopFS(tmpdir, hConf)
-        fs.deleteOnExit(new hadoop.fs.Path(dirname))
+        //fs.deleteOnExit(new hadoop.fs.Path(dirname))
 
         return new TempDir(dirname)
       } catch {
