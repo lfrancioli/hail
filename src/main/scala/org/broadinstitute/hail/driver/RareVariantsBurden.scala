@@ -9,6 +9,7 @@ import org.broadinstitute.hail.methods.{GeneBurden, Phasing}
 import org.broadinstitute.hail.variant.{Genotype, Variant, VariantDataset, VariantSampleMatrix}
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.broadinstitute.hail.utils.{SparseVariantSampleMatrix, SparseVariantSampleMatrixRRDBuilder}
+import org.broadinstitute.hail.Utils._
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -80,7 +81,7 @@ object RareVariantsBurden extends Command {
 
       var saQueriers = Array.ofDim[(BaseType,Querier)](saStrat.size)
       saStrat.indices.foreach({ i =>
-        saQueriers(i) = svsm.querySA(vaStrat(i))
+        saQueriers(i) = svsm.querySA(saStrat(i))
       })
 
       //Stores all values found for variant annotations
@@ -190,14 +191,15 @@ object RareVariantsBurden extends Command {
         * }*/
 
       def getSingleVariantsStats(group_name : String) : String = {
+
         results.singleVariantsStats.map({case (ann,(nHets,nHoms)) =>
-          ann+"\t%d\t%d".format(nHets,nHoms)
+          "%s%s\t%d\t%d".format(group_name,if(ann.isEmpty) "" else "\t"+ann,nHets,nHoms)
         }).mkString("\n")
       }
 
       def getVariantPairsStats(group_name : String) : String = {
         results.variantPairsStats.map({case (ann,(nCHets,nCHetsD)) =>
-          ann+"\t%d\t%.3f".format(nCHets,nCHetsD)
+          "%s%s\t%d\t%.3f".format(group_name,if(ann.isEmpty) "" else "\t"+ann,nCHets,nCHetsD)
         }).mkString("\n")
       }
 
@@ -295,15 +297,19 @@ object RareVariantsBurden extends Command {
       //Get annotations
       val geneAnn = state.vds.queryVA(options.gene_annotation)._2
 
+      info("Computing gene burden")
+
       val gb = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(
         state.vds.filterVariants(rareVariantsFilter),
         state.sc,
         partitioner,
-        saStrats.value,
-        vaStrats.value
+        vaStrats.value,
+        saStrats.value
       )({case (v,va) => geneAnn(va).get.toString}).mapValues(
         {case svsm => new GeneBurdenResult(svsm, vaStrats.value, saStrats.value)}
       ).persist(StorageLevel.MEMORY_AND_DISK)
+
+      info("Writing out results")
 
       //Write out single variant stats
       new RichRDD(gb.map(
