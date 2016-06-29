@@ -50,16 +50,16 @@ object RareVariantsBurden extends Command {
   object GeneBurdenResult {
 
     def getSingleVariantHeaderString(variantAnnotations: Array[String], sampleAnnotations: Array[String]) : String = {
-      sampleAnnotations.mkString("\t") +
-        variantAnnotations.foldLeft("")({(str,ann) => str + "\t" + ann}) +
-        "\tnHets\tnHomVar"
+      (sampleAnnotations ++
+        variantAnnotations ++
+        Array("nHets","nHomVar")).mkString("\t")
     }
 
     def getVariantPairHeaderString(variantAnnotations: Array[String], sampleAnnotations: Array[String]) : String = {
-      sampleAnnotations.mkString("\t") +
-        variantAnnotations.foldLeft("")({(str,ann) => str + "\t" + ann + "1"}) +
-        variantAnnotations.foldLeft("")({(str,ann) => str + "\t" + ann + "2"}) +
-        "\tnCHets\tnCHetsD"
+      (sampleAnnotations ++
+        variantAnnotations.map(ann => ann + "1") ++
+        variantAnnotations.map(ann => ann + "2") ++
+        Array("nCHets","nCHetsD")).mkString("\t")
     }
 
     /**private def zipVA(va1: Array[String],va2: Array[String]) : Array[String] = {
