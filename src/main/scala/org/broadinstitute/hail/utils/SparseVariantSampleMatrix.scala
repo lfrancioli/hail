@@ -1,6 +1,7 @@
 package org.broadinstitute.hail.utils
 
-import breeze.linalg.{DenseVector}
+import breeze.linalg.DenseVector
+import org.apache.avro.SchemaBuilder.MapBuilder
 import org.apache.spark.{Partitioner, SparkContext}
 import org.apache.spark.rdd.RDD
 import org.broadinstitute.hail.annotations._
@@ -93,6 +94,81 @@ object SparseVariantSampleMatrixRRDBuilder {
           (mapOp(v,va), (v.toString,reducedVA,siBuilder.result(),gtBuilder.result()))
         }
       }.aggregateByKey(new SparseVariantSampleMatrix(bcSampleIds.value, newVAbc.value, sa.value._1, sa.value._2), partitioner) (
+      { case (svsm, (v,reducedVA,sampleIndices,genotypes)) =>
+        var va = Annotation.empty
+        reducedVA.indices.foreach({ i =>
+          va = inserters.value(i)(va,reducedVA(i))
+        })
+        svsm.addVariant(v,va,sampleIndices,genotypes) },
+      { (svsm1,svsm2) => svsm1.merge(svsm2) })
+  }
+
+  //Given a mapping from a variant and its annotations to use as the key to the resulting PairRDD,
+  //Aggregates the data in a SparseSampleVariantMatrix
+  def buildByAnnotationWithSA[K,K2](vsm: VariantSampleMatrix[Genotype], sc: SparkContext, partitioner : Partitioner, variantAnnotations : Array[String], sampleAnnotations: Array[String] = Array[String]())(
+    mapOp: (Variant, Annotation)  => K, saMapOp: Annotation => K2)(implicit uct: ClassTag[K]): RDD[((K,K2), SparseVariantSampleMatrix)] = {
+
+    /**if(variantAnnotations.isEmpty){
+      return buildByAnnotation(vsm,sc,partitioner,sampleAnnotations)(mapOp)
+    }**/ //TODO Might be worth implementing
+
+    //Broadcast sample IDs
+    val bcSampleIds = sc.broadcast(vsm.sampleIds)
+
+    //Build sample annotations
+    val sa = sc.broadcast(buildSamplesAnnotations(vsm,sampleAnnotations))
+
+    //Create a map of sampleID => saMapOp()
+    val saMap = Map.newBuilder[Int,K2]
+      sa.value._2.indices.foreach({
+        i => saMap += ((i,saMapOp(sa.value._2(i))))
+      })
+    val saMapbc = sc.broadcast(saMap.result())
+
+
+    //Create annotations signature / querier / inserter
+    var newVA : Type = TStruct.empty
+    val inserterBuilder = mutable.ArrayBuilder.make[Inserter]
+    val querierBuilder = mutable.ArrayBuilder.make[Querier]
+    variantAnnotations.foreach({a =>
+      val (atype, aquerier) = vsm.queryVA(a)
+      querierBuilder += aquerier
+      val (s,i) = newVA.insert(atype.asInstanceOf[Type],expr.Parser.parseAnnotationRoot(a,"va"))
+      inserterBuilder += i
+      newVA = s
+
+    })
+    val queriers = sc.broadcast(querierBuilder.result())
+    val inserters = sc.broadcast(inserterBuilder.result())
+    val newVAbc = sc.broadcast(newVA)
+
+    vsm.rdd
+      .mapPartitions { (it: Iterator[(Variant, Annotation, Iterable[Genotype])]) =>
+        val gtBuilder = new mutable.ArrayBuilder.ofByte()
+        val siBuilder = new ArrayBuilder.ofInt()
+        it.map { case (v, va, gs) =>
+
+          val reducedVA = queriers.value.map({qa => qa(va)})
+          val gtBySA = gs.iterator.zipWithIndex.filter({
+            case (g,i) => !g.isHomRef}).map({
+            case (g,i) => (saMapbc.value(i),i,g.gt.getOrElse(-1).toByte)
+          }).toList.groupBy({case (sa,i,gt) => sa}).map({
+            case (k,ls) =>
+              gtBuilder.clear()
+              siBuilder.clear()
+             ls.foreach(
+               {case (sa,i,gt) => siBuilder += i
+               gtBuilder += gt}
+             )
+              (k,v.toString,reducedVA,siBuilder.result(),gtBuilder.result())
+            })
+          (mapOp(v,va),gtBySA)
+        }
+      }.flatMap({case (g,ls) =>
+        for((sa,v,va,si,gt) <- ls) yield{
+          ((g,sa),(v,va,si,gt))
+        }
+      }).aggregateByKey(new SparseVariantSampleMatrix(bcSampleIds.value, newVAbc.value, sa.value._1, sa.value._2), partitioner) (
       { case (svsm, (v,reducedVA,sampleIndices,genotypes)) =>
         var va = Annotation.empty
         reducedVA.indices.foreach({ i =>
