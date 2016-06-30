@@ -71,6 +71,7 @@ object ToplevelCommands {
   register(GTCountByAnnotation)
   register(ImportVCF)
   register(LinearRegressionCommand)
+  register(LinkedVariantPairs)
   register(MendelErrorsCommand)
   register(SplitMulti)
   register(PCA)
