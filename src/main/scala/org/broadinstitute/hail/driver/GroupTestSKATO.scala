@@ -15,27 +15,73 @@ import scala.collection.JavaConverters._
 object GroupTestSKATO extends Command {
 
   class Options extends BaseOptions {
-    @Args4jOption(name = "--block-size", usage = "Groups per SKAT-O invocation")
-    var blockSize = 1000
-
-    @Args4jOption(required = true, name = "--config", usage = "SKAT-O configuration file")
-    var config: String = _
-
-    @Args4jOption(required = true, name = "-y", aliases = Array("--y"), usage = "Response sample annotation")
-    var ySA: String = _
-
-//    @Args4jOption(required = true, name = "-q", aliases = Array("--quantitative"), usage = "y is a quantitative phenotype")
-//    var yType: Boolean = false
-
-    @Args4jOption(required = true, name = "-o", aliases = Array("--output"), usage = "path of output tsv")
-    var output: String = _
-
-    @Args4jOption(required = false, name = "-c", aliases = Array("--covariates"), usage = "Covariate sample annotations, comma-separated")
-    var covSA: String = ""
 
     @Args4jOption(required = true, name = "-k", aliases = Array("--groupkeys"),
       usage = "comma-separated list of annotations to be used as grouping variable(s) (must be attribute of va)")
     var groupKeys: String = _
+
+    @Args4jOption(required = true, name = "--config", usage = "SKAT-O configuration file")
+    var config: String = _
+
+    @Args4jOption(name = "--block-size", usage = "# of Groups per SKAT-O invocation")
+    var blockSize = 1000
+
+    @Args4jOption(required = false, name = "-q", aliases = Array("--quantitative"), usage = "y is a quantitative phenotype")
+    var quantitative: Boolean = false
+
+    @Args4jOption(required = true, name = "-y", aliases = Array("--y"), usage = "Response sample annotation")
+    var ySA: String = _
+
+    @Args4jOption(required = false, name = "-c", aliases = Array("--covariates"), usage = "Covariate sample annotations, comma-separated")
+    var covSA: String = ""
+
+    @Args4jOption(required = true, name = "-o", aliases = Array("--output"), usage = "path of output tsv")
+    var output: String = _
+
+
+    //SKAT_Null_Model options
+    @Args4jOption(required = false, name = "--n-resampling",
+      usage = "Number of times to resample residuals")
+    var nResampling: Int = 0
+
+    @Args4jOption(required = false, name = "--type-resampling",
+      usage = "Resampling method. One of [bootstrap, bootstrap.fast]")
+    var typeResampling: String = "bootstrap"
+
+    @Args4jOption(required = false, name = "--no-adjustment",
+      usage = "No adjustment for small sample sizes")
+    var noAdjustment: Boolean = false
+
+
+    //SKAT options
+    @Args4jOption(required = false, name = "--kernel",
+      usage = "SKAT-O kernel type. One of [linear, linear.weighted, IBS, IBS.weighted, quadratic, 2wayIX]")
+    var kernel: String = "linear.weighted"
+
+    @Args4jOption(required = false, name = "--method",
+      usage = "Method for calculating p-values. One of [davies, liu, liu.mod, optimal.adj, optimal]")
+    var method: String = "davies"
+
+    @Args4jOption(required = false, name = "--weights-beta",
+      usage = "Comma-separated parameters for beta function for calculating weights. Default is 1,25")
+    var weightsBeta: String = "1,25"
+
+    @Args4jOption(required = false, name = "--impute-method",
+      usage = "Method for imputing missing genotypes. One of [fixed, random, bestguess]")
+    var imputeMethod: String = "fixed"
+
+    @Args4jOption(required = false, name = "--r-corr",
+      usage = "The rho parameter for the unified test. rho=0 is SKAT only. rho=1 is Burden only. Can also be multiple comma-separated values")
+    var rCorr: String = "0.0"
+
+    @Args4jOption(required = false, name = "--missing-cutoff",
+      usage = "Missing rate cutoff for SNP inclusion")
+    var missingCutoff: Double = 0.15
+
+    @Args4jOption(required = false, name = "--estimate-maf",
+      usage = "Method for estimating MAF. 1 = use all samples to estimate MAF. 2 = use samples with non-missing phenotypes and covariates")
+    var estimateMAF: Int = 1
+
   }
 
   def newOptions = new Options
@@ -75,20 +121,18 @@ object GroupTestSKATO extends Command {
 
     val R = properties.getProperty("hail.skato.R", "/usr/bin/Rscript")
     val skatoScript = properties.getProperty("hail.skato.script", "src/test/resources/testSKATO.r")
-    val kernel = properties.getProperty("hail.skato.kernel", "linear.weighted")
-    val method = properties.getProperty("hail.skato.method", "davies")
-    val weightsBeta = properties.getProperty("hail.skato.weightsBeta", "1,25")
-    //val weights
-    val imputeMethod = properties.getProperty("hail.skato.imputeMethod", "fixed")
-    val rCorr = properties.getProperty("hail.skato.rCorr", "0")
-    val checkGenotype = properties.getProperty("hail.skato.checkGenotype", "true")
-    val isDosage = properties.getProperty("hail.skato.isDosage", "false")
-    val missingCutoff = properties.getProperty("hail.skato.missingCutoff", "0.15")
-    val estimateMAF = properties.getProperty("hail.skato.estimateMAF", "1")
 
+    val availMethods = Set("davies", "liu", "liu.mod", "optimal.adj", "optimal")
+    if (!availMethods.contains(options.method))
+      fatal("Did not recognize option specified for --method. Use one of [davies, liu, liu.mod, optimal.adj, optimal]")
 
-//    if (group == null)
-//      fatal("No group has been created. Use the `creategroup` command.")
+    val availKernels = Set("linear", "linear.weighted", "IBS", "IBS.weighted", "quadratic", "2wayIX")
+    if (!availKernels.contains(options.kernel))
+      fatal("Did not recognize option specified for --kernel. Use one of [linear, linear.weighted, IBS, IBS.weighted, quadratic, 2wayIX]")
+
+    val availMafEstimate = Set(1, 2)
+    if (!availMafEstimate.contains(options.estimateMAF))
+      fatal("Did not recognize option specified for --estimate-maf. Use one of [1, 2].")
 
     def toDouble(t: BaseType, code: String): Any => Double = t match {
       case TInt => _.asInstanceOf[Int].toDouble
@@ -131,10 +175,35 @@ object GroupTestSKATO extends Command {
 
     val ySABC = state.sc.broadcast(ySA)
 
+    val yType = if (options.quantitative) "C" else "D"
+    val nResampling = options.nResampling
+    val typeResampling = options.typeResampling
+    val adjustment = !options.noAdjustment
+    val kernel = options.kernel
+    val method = options.method
+    val weightsBeta = options.weightsBeta
+    val imputeMethod = options.imputeMethod
+    val rCorr = options.rCorr
+    val missingCutoff = options.missingCutoff
+    val estimateMAF = options.estimateMAF
+
     def printContext(w: (String) => Unit) = {
       val y = pretty(JArray(ySABC.value.map{y => if (y.isDefined) JDouble(y.get) else JNull}.toList))
       val cov = JArray(covSA.map{cov => JArray(cov.map{c => if (c.isDefined) JDouble(c.get) else JNull}.toList)}.toList)
-      w(s"""{"Y":$y, "groups":{""")
+      w(
+        s"""{"yType":"$yType",
+           |"nResampling":$nResampling,
+           |"typeResampling":"$typeResampling",
+           |"adjustment":$adjustment,
+           |"kernel":"$kernel",
+           |"method":"$method",
+           |"weightsBeta":[$weightsBeta],
+           |"imputeMethod":"$imputeMethod",
+           |"rCorr":[$rCorr],
+           |"missingCutoff":$missingCutoff,
+           |"estimateMAF":$estimateMAF,
+           |"Y":$y,
+           |"groups":{""".stripMargin)
     }
 
     def printSep(w: (String) => Unit) = {

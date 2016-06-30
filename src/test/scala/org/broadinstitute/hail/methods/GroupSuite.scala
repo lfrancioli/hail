@@ -99,7 +99,9 @@ class GroupSuite extends SparkSuite {
 
     val skatoOutput = tmpDir.createTempFile("skatoTest", ".tsv")
     s = AnnotateSamplesTable.run(s, Array("-i", phenotypeTable, "-r", "sa.mypheno", "-t", "Phenotype1: String, Phenotype2: Boolean"))
-    s = GroupTestSKATO.run(s, Array("-k", "va.gene", "-y", "sa.mypheno.Phenotype2", "--config", configSkato, "--block-size", "1", "-o", skatoOutput))
+    s = GroupTestSKATO.run(s, Array("-k", "va.gene", "-y", "sa.mypheno.Phenotype2",
+      "--config", configSkato, "--block-size", "1", "-o", skatoOutput,
+    "--missing-cutoff", "1.0", "--estimate-maf", "2"))
     sys.exit()
     s = CreateGroup.run(s, Array("-k", "va.gene", "-v", "g.nNonRefAlleles", "-a", "sum"))
 

@@ -13,20 +13,49 @@ json_data <- fromJSON(file("stdin"), simplifyVector=TRUE, simplifyMatrix=TRUE)
 
 # get phenotype vector
 Y <- json_data$Y
+yType <- json_data$yType
+nResampling <- json_data$nResampling
+typeResampling <- json_data$typeResampling
+adjustment <- json_data$adjustment
+kernel <- json_data$kernel
+method <- json_data$method
+weightsBeta <- json_data$weightsBeta
+imputeMethod <- json_data$imputeMethod
+rCorr <- json_data$rCorr
+missingCutoff <- json_data$missingCutoff
+estimateMAF <- json_data$estimateMAF
 
 # calculate null model
-# FIXME: add continuous phenotype support
 if ("COV" %in% names(json_data)) {
-   obj <- SKAT_Null_Model(Y ~ json_data$COV, out_type="D")
+   obj <- suppressWarnings(SKAT_Null_Model(Y ~ json_data$COV, 
+                          out_type=yType, 
+                          n.Resampling = nResampling, 
+                          type.Resampling = typeResampling,
+                          Adjustment = adjustment))
 } else {
-   obj <- suppressWarnings(SKAT_Null_Model(Y ~ 1, out_type="D"))
+   obj <- suppressWarnings(SKAT_Null_Model(Y ~ 1, 
+                                           out_type=yType,
+                                           n.Resampling = nResampling, 
+                                           type.Resampling = typeResampling,
+                                           Adjustment = adjustment))
 }
+
+cat(obj$id_include, file="~/debugSKATO.txt")
 
 group_data <- json_data$groups
 
 runSkatO <- function(name, data) {
 	 Z <- t(data)
-	 suppressWarnings(res <- SKAT(Z, obj))
+	 suppressWarnings(res <- SKAT(Z, obj,
+	                              kernel = kernel,
+	                              method = method,
+	                              weights.beta = weightsBeta,
+	                              impute.method = imputeMethod,
+	                              r.corr = rCorr,
+	                              missing_cutoff = missingCutoff,
+	                              estimate_MAF = estimateMAF)
+	                  )
+	 
 	 return(list(groupName = unbox(name), 
 	             pValue = unbox(res$p.value), 
 	             pValueNoAdj = unbox(res$p.value.noadj), 
