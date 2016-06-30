@@ -3,6 +3,7 @@ package org.broadinstitute.hail.driver
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.SQLContext
 import org.broadinstitute.hail.Utils._
+import org.broadinstitute.hail.hailql.HailQLCommand
 import org.broadinstitute.hail.variant.VariantDataset
 import org.kohsuke.args4j.{Argument, CmdLineException, CmdLineParser, Option => Args4jOption}
 
@@ -68,6 +69,7 @@ object ToplevelCommands {
   register(GRM)
   register(GQByDP)
   register(GQHist)
+  register(HailQLCommand)
   register(ImportVCF)
   register(LinearRegressionCommand)
   register(MendelErrorsCommand)
