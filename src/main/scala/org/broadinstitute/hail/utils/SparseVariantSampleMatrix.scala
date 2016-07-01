@@ -1,6 +1,6 @@
 package org.broadinstitute.hail.utils
 
-import breeze.linalg.DenseVector
+import breeze.linalg.{CSCMatrix, DenseVector, sum}
 import org.apache.avro.SchemaBuilder.MapBuilder
 import org.apache.spark.{Partitioner, SparkContext}
 import org.apache.spark.rdd.RDD
@@ -35,7 +35,9 @@ object SparseVariantSampleMatrixRRDBuilder {
     vsm.rdd
       .mapPartitions { (it: Iterator[(Variant, Annotation, Iterable[Genotype])]) =>
         val gtBuilder = new mutable.ArrayBuilder.ofByte()
+        gtBuilder.sizeHint(bcSampleIds.value.size+1) //TODO: Remove when updating to Scala 2.12+
         val siBuilder = new ArrayBuilder.ofInt()
+        siBuilder.sizeHint(bcSampleIds.value.size+1) //TODO: Remove when updating to Scala 2.12+
         it.map { case (v, va, gs) =>
           gtBuilder.clear()
           siBuilder.clear()
@@ -83,7 +85,9 @@ object SparseVariantSampleMatrixRRDBuilder {
     vsm.rdd
       .mapPartitions { (it: Iterator[(Variant, Annotation, Iterable[Genotype])]) =>
         val gtBuilder = new mutable.ArrayBuilder.ofByte()
+        gtBuilder.sizeHint(bcSampleIds.value.size+1) //TODO: Remove when updating to Scala 2.12+
         val siBuilder = new ArrayBuilder.ofInt()
+        siBuilder.sizeHint(bcSampleIds.value.size+1) //TODO: Remove when updating to Scala 2.12+
         it.map { case (v, va, gs) =>
           gtBuilder.clear()
           siBuilder.clear()
@@ -109,8 +113,8 @@ object SparseVariantSampleMatrixRRDBuilder {
     mapOp: (Variant, Annotation)  => K, saMapOp: Annotation => K2)(implicit uct: ClassTag[K]): RDD[((K,K2), SparseVariantSampleMatrix)] = {
 
     /**if(variantAnnotations.isEmpty){
-      return buildByAnnotation(vsm,sc,partitioner,sampleAnnotations)(mapOp)
-    }**/ //TODO Might be worth implementing
+      * return buildByAnnotation(vsm,sc,partitioner,sampleAnnotations)(mapOp)
+      * }**/ //TODO Might be worth implementing
 
     //Broadcast sample IDs
     val bcSampleIds = sc.broadcast(vsm.sampleIds)
@@ -145,9 +149,10 @@ object SparseVariantSampleMatrixRRDBuilder {
     vsm.rdd
       .mapPartitions { (it: Iterator[(Variant, Annotation, Iterable[Genotype])]) =>
         val gtBuilder = new mutable.ArrayBuilder.ofByte()
+        gtBuilder.sizeHint(bcSampleIds.value.size+1) //TODO: Remove when updating to Scala 2.12+
         val siBuilder = new ArrayBuilder.ofInt()
+        siBuilder.sizeHint(bcSampleIds.value.size+1) //TODO: Remove when updating to Scala 2.12+
         it.map { case (v, va, gs) =>
-
           val reducedVA = queriers.value.map({qa => qa(va)})
           val gtBySA = gs.iterator.zipWithIndex.filter({
             case (g,i) => !g.isHomRef}).map({
@@ -258,24 +263,6 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
 
     this
   }
-
-
-  /**def addGenotype(variant: String, index: Int, genotype: Genotype) : SparseVariantSampleMatrix ={
-
-    if(!genotype.isHomRef){
-
-      variantsIndex.get(variant) match {
-        case Some(v) =>
-          v_sindices.update(v,v_sindices(v):+index)
-          v_genotypes.update(v,v_genotypes(v):+genotype.gt.getOrElse(-1).toByte)
-        case None =>
-          v_sindices.append(Array(index))
-          v_genotypes.append(Array(genotype.gt.getOrElse(-1).toByte))
-      }
-
-    }
-    this
-  }*/
 
   def merge(that: SparseVariantSampleMatrix): SparseVariantSampleMatrix = {
 
@@ -426,6 +413,39 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
     querier(variantsAnnotations(variantsIndex(variantID)))
   }
 
+  //Computes the variant pairs that exist in the samples and returns them
+  def getExistingVariantPairs() : Set[(String,String)] = {
+
+    //Stores whether each variant pair was observed
+    val result = mutable.HashSet[(String,String)]()
+
+    //Go through each of the samples and fill the matrix
+    if(s_vindices.isEmpty){ buildSampleView() }
+
+    //Creates the sets of variants
+    val s_variantBuilder = new ArrayBuilder.ofInt()
+    s_variantBuilder.sizeHint(variants.size) //TODO: Remove then updating to Scala 2.12+
+
+    sampleIDs.indices.foreach({
+      si =>
+        //Get all variants with het/homvar genotype
+        s_variantBuilder.clear()
+        s_vindices(si).indices.foreach({
+          vi => if(s_genotypes(si)(vi) > -1) { s_variantBuilder += s_vindices(si)(vi) }
+        })
+
+        //Computes all pairs of variants
+        val s_variants = s_variantBuilder.result()
+        s_variants.indices.foreach({
+          v1i =>
+            Range(v1i+1,s_variants.size).foreach({
+              v2 => result.add(variants(s_variants(v1i)),variants(s_variants(v2)))
+            })
+        })
+    })
+    result.toSet
+  }
+
 
   private def buildSampleView() = {
 
@@ -438,7 +458,9 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
     }).groupBy({case (vindex,sindex,gt) => sindex})
 
     val vBuilder = new ArrayBuilder.ofInt
+    vBuilder.sizeHint(variants.size) //TODO: Remove then updating to Scala 2.12+
     val gBuilder = new ArrayBuilder.ofByte
+    gBuilder.sizeHint(variants.size) //TODO: Remove then updating to Scala 2.12+
 
     Range(0,sampleIDs.size).foreach({
       si =>
@@ -504,71 +526,50 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
     * (7) Aabb
     * (8) aabb
     */
-  def getGenotypeCounts(variantID1: String, variantID2: String) : DenseVector[Int] = {
+   def getGenotypeCounts(variantID1: String, variantID2: String) : DenseVector[Int] = {
 
+    val gtCounts = new DenseVector(new Array[Int](9))
+    var n_noCalls = 0
 
-    def getIndex(g1: GenotypeType, g2: GenotypeType) : Int = {
-      (g1, g2) match {
-        case (HomRef, HomRef) => 0
-        case (Het, HomRef) => 1
-        case (HomVar, HomRef) => 2
-        case (HomRef, Het) => 3
-        case (Het, Het) => 4
-        case (HomVar, Het) => 5
-        case (HomRef, HomVar) => 6
-        case (Het, HomVar) => 7
-        case (HomVar,HomVar) => 8
-        case _ => -1
+    def addCount(gt1: Byte, gt2:Byte): Unit ={
+      if(gt1 < 0 || gt2 < 0){
+        n_noCalls += 1
+      }
+      else{
+        gtCounts(gt1 + 3*gt2) +=1
       }
     }
 
-    val gtCounts = new DenseVector(new Array[Int](9))
+    //Get sample/genotype pairs sorted by sample
+    val v1_gts = v_sindices(variantsIndex(variantID1)).zip(v_genotypes(variantsIndex(variantID1))).sortBy({case (s,gt) => s})
+    val v2_gts = v_sindices(variantsIndex(variantID2)).zip(v_genotypes(variantsIndex(variantID2))).sortBy({case (s,gt) => s})
+    var v2_index = 0
 
-    val v1_gt = getVariant(variantID1)
-    val v2_gt = getVariant(variantID2)
+    //Add all gt1 counts
+    v1_gts.foreach({
+      case(s1,gt1) =>
+        //first samples for v2 is the same
+        while(v2_index < v2_gts.size && v2_gts(v2_index)._1 < s1){
+          addCount(0,v2_gts(v2_index)._2)
+          v2_index += 1
+        }
+        if(v2_index < v2_gts.size && v2_gts(v2_index)._1 == s1){
+          addCount(gt1,v2_gts(v2_index)._2)
+          v2_index += 1
+        }else{
+          addCount(gt1,0)
+        }
+    })
+
+    //Add all remaining gt2 counts
+    Range(v2_index,v2_gts.size).foreach(
+      i => addCount(0, v2_gts(i)._2 )
+    )
 
     //Add all HomRef/HomRef counts
-    gtCounts(0) += this.nSamples - (v1_gt.keys.toSet ++ v2_gt.keys.toSet ).size
-
-    //Add all non-homref genotype counts from v1
-    v1_gt.foreach({
-      case (s,g1) =>
-        val index = v2_gt.get(s) match {
-          case Some(g2) =>
-            v2_gt.remove(s)
-            getIndex(g1.gtType, g2.gtType)
-          case None =>
-            getIndex(g1.gtType,GenotypeType.HomRef)
-        }
-        if(index > -1){ gtCounts(index) += 1 }
-    })
-
-    //Add all v2-specific counts
-    v2_gt.foreach({
-      case (s,g2) => if(g2.isCalled){ gtCounts(getIndex(GenotypeType.HomRef,g2.gtType)) += 1 }
-    })
+    gtCounts(0) += this.nSamples - n_noCalls - sum(gtCounts)
 
     return(gtCounts)
 
   }
-
- /**def cumulativeAF: Double = {
-
- variants.aggregate(0.0)({(acc, variant) =>
-      //Count the number of called samples and the number of non-ref alleles
-      val counts = variant._2.foldLeft((0.0,0.0))({(acc2,g) =>
-    g match {
-          case GenotypeType.NoCall => (acc2._1, acc2._2 + 1)
-          case GenotypeType.Het => (acc2._1 + 1, acc2._2)
-          case GenotypeType.HomVar => (acc2._1 + 2, acc2._2)
-          case GenotypeType.HomRef => acc2 //This is only here for completeness sake and should never be used
-    }
-      })
-      counts._1/(nSamples - counts._2)
-    },
-      {(acc1,acc2) => (acc1 + acc2)
-    })
-
- }**/
-
 }
