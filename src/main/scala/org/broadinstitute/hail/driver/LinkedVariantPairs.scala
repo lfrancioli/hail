@@ -37,8 +37,8 @@ object LinkedVariantPairs extends Command {
     var output: String = _
     @Args4jOption(required = false, name = "-vaStrat", aliases = Array("--va_stratification"), usage = "Stratify results based on variant annotations. Comma-separated list of annotations.")
     var vaStrat: String = ""
-    @Args4jOption(required = false, name = "-saStrat", aliases = Array("--sa_stratification"), usage = "Stratify results based on sample annotations. Comma-separated list of annotations.")
-    var saStrat: String = ""
+    //@Args4jOption(required = false, name = "-saStrat", aliases = Array("--sa_stratification"), usage = "Stratify results based on sample annotations. Comma-separated list of annotations.")
+    //var saStrat: String = ""
     @Args4jOption(required = false, name = "-p", aliases = Array("--partitions_number"), usage = "Number of partitions to use for gene aggregation.")
     var number_partitions: Int = 1000
   }
@@ -47,9 +47,8 @@ object LinkedVariantPairs extends Command {
 
   object LinkedVariantPairResult {
 
-    def getHeader(variantAnnotations: Array[String], sampleAnnotations: Array[String]) : String = {
-      (Array("CHROM","POS1","REF1","ALT1","POS2","REF2","ALT2") ++
-      sampleAnnotations ++
+    def getHeader(variantAnnotations: Array[String]) : String = {
+      (Array("CHROM1","POS1","REF1","ALT1","CHROM2","POS2","REF2","ALT2") ++
         variantAnnotations.map(x => x +"1") ++
         variantAnnotations.map(x => x +"2") ++
       Array("nAB","nAb","naB","nab")).mkString("\t")
@@ -57,7 +56,7 @@ object LinkedVariantPairs extends Command {
 
   }
 
-  class LinkedVariantPairResult(svsm: SparseVariantSampleMatrix, val vaStrat: Array[String], val saStrat: Array[String]){
+  class LinkedVariantPairResult(svsm: SparseVariantSampleMatrix, val vaStrat: Array[String]){
 
     //Stores all variants that are already done (v1,v2,annotations)
     private val alreadyDone = mutable.HashSet[(String,String,String)]()
@@ -70,25 +69,21 @@ object LinkedVariantPairs extends Command {
       vaQueriers(i) = svsm.queryVA(vaStrat(i))
     })
 
-    var saQueriers = Array.ofDim[(BaseType,Querier)](saStrat.size)
-    saStrat.indices.foreach({ i =>
-      saQueriers(i) = svsm.querySA(saStrat(i))
-    })
-
     //Compute burden
     val variantPairHaplotypes = computePairs()
 
 
     //Simple Result class
-    class VariantPairHaplotypes(val sa: String, val v1: String, val v2 : String, val va1: Array[String], val va2: Array[String], val haplotypes: Option[DenseVector[Double]]){
+    class VariantPairHaplotypes(val v1: String, val v2 : String, val va1: Array[String], val va2: Array[String], val haplotypes: Option[DenseVector[Double]]){
 
       override def toString() : String ={
         val haplotypeCountStr = haplotypes match{
-          case Some(hapCounts) => hapCounts.foldLeft("")({case(str,count) => str + "\t" + count})
+          case Some(hapCounts) => hapCounts.foldLeft("")({case(str,count) => str + "\t" + count.round})
           case None => "NA\tNA\tNA\tNA"
         }
 
-        (Array(sa,v1,v2) ++
+        (v1.split(":") ++
+          v2.split(":") ++
         va1 ++
         va2).mkString("\t") + haplotypeCountStr
       }
@@ -96,9 +91,8 @@ object LinkedVariantPairs extends Command {
 
     //Methods
     def toString(group_name : String) : String = {
-      variantPairHaplotypes.map(hap => hap.toString()).mkString("\n")
+      variantPairHaplotypes.map(hap => group_name + "\t" + hap.toString()).mkString("\n")
     }
-
 
     private def getVAStrats(variant : String) :  Array[String] = {
       vaCache.get(variant) match {
@@ -113,67 +107,16 @@ object LinkedVariantPairs extends Command {
       }
     }
 
-    private def getHaplotypes(sa: String, v1: String, othervariants: List[String]) : List[VariantPairHaplotypes] = {
-      val resHaplotypes = List.newBuilder[VariantPairHaplotypes]
-      othervariants.foreach(
-        { case v2 =>
-          //Make sure to process variants in order
-          val haps = if(v1 < v2) getHaplotypes(sa,v1,v2) else getHaplotypes(sa,v2,v1)
-
-            haps match{
-              case Some(haplotypes) => resHaplotypes += haplotypes
-              case None =>
-            }
-        }
-      )
-      resHaplotypes.result()
-    }
-
-    private def getHaplotypes(sa: String, v1: String, v2: String) : Option[VariantPairHaplotypes] = {
-      if (!alreadyDone.contains((sa, v1, v2))) {
-        alreadyDone.add((sa,v1,v2))
-        Some(new VariantPairHaplotypes(sa, v1, v2,getVAStrats(v1), getVAStrats(v2),
-       Phasing.phaseVariantPairWithEM(svsm.getGenotypeCounts(v1,v2))))
-      }
-      else {
-        None
-      }
-    }
-
     private def computePairs() : List[VariantPairHaplotypes] = {
 
       var variantPairHaplotypes = List.newBuilder[VariantPairHaplotypes]
 
-      //Loop through all samples
-      svsm.sampleIDs.indices.foreach({ i =>
-
-        info("computing haplotypes for sample %d".format(i))
-
-        //Get sample stratification
-        val saStrat = saQueriers.map({querier =>
-          svsm.getSampleAnnotation(i,querier._2).getOrElse("NA").toString()
-        })
-        //Compute and add sample results
-        variantPairHaplotypes = computeIndividualVariantPairs(saStrat.mkString("\t"), svsm.getSampleAsList(i),variantPairHaplotypes)
-
+      svsm.getExistingVariantPairs().foreach({
+        case(v1,v2) => variantPairHaplotypes += new VariantPairHaplotypes(v1, v2,getVAStrats(v1), getVAStrats(v2),
+          Phasing.phaseVariantPairWithEM(svsm.getGenotypeCounts(v1,v2)))
       })
 
       variantPairHaplotypes.result()
-    }
-
-    private def computeIndividualVariantPairs(sa : String, variants: List[(String,Genotype)],
-                                              res : mutable.Builder[VariantPairHaplotypes,List[VariantPairHaplotypes]],
-                                              previousVariants: List[String] = List[String]()): mutable.Builder[VariantPairHaplotypes,List[VariantPairHaplotypes]] = {
-
-      variants match {
-        case Nil => res
-        case (v,gt)::vgts =>
-          if(!gt.isHomRef){
-            computeIndividualVariantPairs(sa, vgts,res ++= getHaplotypes(sa,v,previousVariants),v::previousVariants)
-          }else{
-            computeIndividualVariantPairs(sa, vgts,res,previousVariants)
-          }
-      }
     }
 
   }
@@ -182,9 +125,10 @@ object LinkedVariantPairs extends Command {
   def run(state: State, options: Options): State = {
 
     //Get sample and variant stratifications
-    val saStrats = state.sc.broadcast(if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]())
+    //val saStrats = state.sc.broadcast(if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]())
     val vaStrats = state.sc.broadcast(if(!options.vaStrat.isEmpty()) options.vaStrat.split(",") else Array[String]())
 
+    /**
     //Get annotation queriers
     val saQueriers = for (strat <- saStrats.value) yield {
       state.vds.querySA(strat)
@@ -196,7 +140,7 @@ object LinkedVariantPairs extends Command {
     })
 
     //Unique sample strats
-    val uniqueSaStrats = state.sc.broadcast(samplesByStrat.value.toSet)
+    val uniqueSaStrats = state.sc.broadcast(samplesByStrat.value.toSet)**/
 
     //Filter variants that have a MAF higher than what we're looking for in ALL stratifications
     /**val maxAF = state.sc.broadcast(if(options.mraf > options.mdaf) options.mraf else options.mdaf)
@@ -238,13 +182,12 @@ object LinkedVariantPairs extends Command {
     info("Computing gene burden")
 
     val gb = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(
-      state.vds,
-      state.sc,
-      partitioner,
-      vaStrats.value,
-      saStrats.value
+      vsm = state.vds,
+      sc = state.sc,
+      partitioner = partitioner,
+      variantAnnotations = vaStrats.value
     )({case (v,va) => geneAnn(va).get.toString}).mapValues(
-      {case svsm => new LinkedVariantPairResult(svsm, vaStrats.value, saStrats.value)}
+      {case svsm => new LinkedVariantPairResult(svsm, vaStrats.value)}
     ).persist(StorageLevel.MEMORY_AND_DISK)
 
     info("Writing out results")
@@ -253,7 +196,7 @@ object LinkedVariantPairs extends Command {
     new RichRDD(gb.map(
       {case (gene,vpr) => vpr.toString(gene)}
     )).writeTable(options.output,
-      Some("gene\t" + LinkedVariantPairResult.getHeader(vaStrats.value,saStrats.value)))
+      Some("gene\t" + LinkedVariantPairResult.getHeader(vaStrats.value)))
 
     state
   }
