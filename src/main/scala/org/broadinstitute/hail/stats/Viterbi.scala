@@ -13,8 +13,9 @@ object Viterbi {
     transitions: MultiArray2[Double],
     starts: Array[Double],
     emissions: Array[(T) => Double]): (Double, Array[Int]) = {
-    require(transitions.n1 == transitions.n2, "transition matrix is not square")
-    require((transitions.n1 == starts.length) && (emissions.length == transitions.n1),
+    require((transitions.n1 == transitions.n2) &&
+      (transitions.n1 == starts.length) &&
+      (emissions.length == transitions.n1),
       s"""inconsistent HMM inputs:
           |  Transition matrix: [${transitions.n1} x ${transitions.n2}]
           |  Initialization vector: [${starts.length} x 1]
