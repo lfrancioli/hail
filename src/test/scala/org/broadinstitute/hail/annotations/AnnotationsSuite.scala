@@ -113,28 +113,12 @@ class AnnotationsSuite extends SparkSuite {
       .contains(true))
     assert(passQuery(variantAnnotationMap(anotherVariant))
       .contains(false))
-
-    val vds2 = LoadVCF(sc, "src/test/resources/sample2.vcf")
-    val vas2 = vds2.vaSignature
-
-    // Check that VDS can be written to disk and retrieved while staying the same
-    val f = tmpDir.createTempFile("sample", extension = ".vds")
-    vds2.write(sqlContext, f)
-    val readBack = Read.run(state, Array("-i", f))
-
-    assert(readBack.vds.same(vds2))
   }
 
-  @Test def testReadWrite() {
+  @Test def testReadTwice() {
     val vds1 = LoadVCF(sc, "src/test/resources/sample.vcf")
-    val s = State(sc, sqlContext, vds1)
     val vds2 = LoadVCF(sc, "src/test/resources/sample.vcf")
     assert(vds1.same(vds2))
-
-    val f = tmpDir.createTempFile("sample", extension = ".vds")
-    Write.run(s, Array("-o", f))
-    val vds3 = Read.run(s, Array("-i", f)).vds
-    assert(vds3.same(vds1))
   }
 
   @Test def testAnnotationOperations() {
@@ -352,17 +336,22 @@ class AnnotationsSuite extends SparkSuite {
   @Test def testWeirdNamesReadWrite() {
     val vds = LoadVCF(sc, "src/test/resources/sample.vcf")
 
-    var state = State(sc, sqlContext, vds)
-    state = SplitMulti.run(state)
+    var s = State(sc, sqlContext, vds)
 
     val (newS, ins) = vds.insertVA(TInt, "ThisName(won'twork)=====")
-    state = state.copy(vds = vds.mapAnnotations((v, va, gs) => ins(va, Some(5)))
+    s = s.copy(vds = vds.mapAnnotations((v, va, gs) => ins(va, Some(5)))
       .copy(vaSignature = newS))
 
     val f = tmpDir.createTempFile("testwrite", extension = ".vds")
+    Write.run(s, Array("-o", f))
 
-    Write.run(state, Array("-o", f))
-    val state2 = Read.run(state, Array("-i", f))
-    assert(state.vds.same(state2.vds))
+    val s2 = Read.run(s, Array("-i", f))
+    val (_, q) = s2.vds.queryVA("va.`ThisName(won'twork)=====`")
+
+    assert(
+      s2.vds.rdd.map { case (v, va, gs) =>
+        q(va) == Some(5)
+      }.fold(true) {_ && _}
+    )
   }
 }

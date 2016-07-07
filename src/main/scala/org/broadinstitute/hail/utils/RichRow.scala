@@ -1,7 +1,8 @@
 package org.broadinstitute.hail.utils
 
 import org.apache.spark.sql.Row
-import org.broadinstitute.hail.variant.{GenotypeStream, Variant}
+import org.broadinstitute.hail.variant.{Genotype, GenotypeStream, Variant}
+
 import scala.collection.mutable
 import scala.language.implicitConversions
 
@@ -58,6 +59,8 @@ class RichRow(r: Row) {
   }
 
   def getVariant(i: Int) = Variant.fromRow(r.getAs[Row](i))
+
+  def getGenotype(i: Int, v: Variant) = Genotype.fromRow(r.getAs[Row](i), v)
 
   def getGenotypeStream(v: Variant, i: Int) = GenotypeStream.fromRow(v, r.getAs[Row](i))
 }

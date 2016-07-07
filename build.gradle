@@ -67,6 +67,8 @@ dependencies {
         exclude module: 'htsjdk'
     }
 
+    compile group: 'com.twitter', name: 'parquet-tools', version: '1.6.0'
+
     compile 'org.json4s:json4s-core_2.10:3.2.10'
     // compile 'org.json4s:json4s-native_2.10:3.2.10'
     compile 'org.json4s:json4s-jackson_2.10:3.2.10'

@@ -158,12 +158,14 @@ object Variant {
       "altAlleles" -> TArray(AltAllele.t))
 
   def fromRow(r: Row) =
-    Variant(r.getAs[String](0),
-      r.getAs[Int](1),
-      r.getAs[String](2),
-      r.getSeq[Row](3)
-        .map(s => AltAllele.fromRow(s))
-        .toArray)
+    if (r == null)
+      null
+    else
+      Variant(r.getAs[String](0),
+        r.getAs[Int](1),
+        r.getAs[String](2),
+        r.getAs[mutable.WrappedArray[Row]](3)
+          .map(s => AltAllele.fromRow(s)))
 }
 
 object VariantSubgen {

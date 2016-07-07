@@ -12,12 +12,23 @@ import org.broadinstitute.hail.expr.{TBinary, TInt, TStruct, Type}
 
 import scala.collection.mutable
 
-// FIXME use zipWithIndex
+class SampleGenotypeStreamIterator(v: Variant, b: ByteIterator) extends Iterator[(Int, Genotype)] {
+  var sample = 0
+
+  override def hasNext: Boolean = b.hasNext
+
+  override def next(): (Int, Genotype) = {
+    val (sampleDelta, g) = Genotype.read(v, b)
+    sample += sampleDelta
+    (sample, g)
+  }
+}
+
 class GenotypeStreamIterator(v: Variant, b: ByteIterator) extends Iterator[Genotype] {
   override def hasNext: Boolean = b.hasNext
 
   override def next(): Genotype = {
-    Genotype.read(v, b)
+    Genotype.read(v, b)._2
   }
 }
 
@@ -48,40 +59,28 @@ object LZ4Utils {
 case class GenotypeStream(variant: Variant, decompLenOption: Option[Int], a: Array[Byte])
   extends Iterable[Genotype] {
 
-  override def iterator: GenotypeStreamIterator = {
+  def decompressed(): Array[Byte] =
     decompLenOption match {
       case Some(decompLen) =>
-        new GenotypeStreamIterator(variant, new ByteIterator(LZ4Utils.decompress(decompLen, a)))
+        LZ4Utils.decompress(decompLen, a)
       case None =>
-        new GenotypeStreamIterator(variant, new ByteIterator(a))
+        a
     }
+
+  override def iterator: GenotypeStreamIterator = {
+    new GenotypeStreamIterator(variant, new ByteIterator(decompressed()))
+  }
+
+  def sampleGenotypeIterator: SampleGenotypeStreamIterator = {
+    new SampleGenotypeStreamIterator(variant, new ByteIterator(decompressed()))
   }
 
   override def newBuilder: mutable.Builder[Genotype, GenotypeStream] = {
     new GenotypeStreamBuilder(variant)
   }
 
-  def decompressed: GenotypeStream = {
-    decompLenOption match {
-      case Some(decompLen) =>
-        GenotypeStream(variant, None, LZ4Utils.decompress(decompLen, a))
-      case None => this
-    }
-  }
-
-  def compressed: GenotypeStream = {
-    decompLenOption match {
-      case Some(_) => this
-      case None =>
-        GenotypeStream(variant, Some(a.length), LZ4Utils.compress(a))
-    }
-  }
-
   def toRow: Row = {
-    Row.fromSeq(Array(
-      decompLenOption.getOrElse(null),
-      a
-    ))
+    Row(decompLenOption.getOrElse(null), a)
   }
 }
 
@@ -120,13 +119,20 @@ class GenotypeStreamBuilder(variant: Variant, compress: Boolean = true)
 
   val b = new mutable.ArrayBuilder.ofByte
 
+  def +=(s: Int, g: Genotype): GenotypeStreamBuilder.this.type = {
+    val gb = new GenotypeBuilder(variant)
+    gb.setSample(s)
+    gb.set(g)
+    gb.write(b)
+    this
+  }
+
   override def +=(g: Genotype): GenotypeStreamBuilder.this.type = {
     val gb = new GenotypeBuilder(variant)
     gb.set(g)
     gb.write(b)
     this
   }
-
 
   def write(gb: GenotypeBuilder) {
     gb.write(b)

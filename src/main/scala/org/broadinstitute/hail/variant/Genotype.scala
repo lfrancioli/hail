@@ -4,6 +4,7 @@ import java.util
 
 import org.apache.commons.lang3.builder.HashCodeBuilder
 import org.apache.commons.math3.distribution.BinomialDistribution
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
 import org.broadinstitute.hail.ByteIterator
 import org.broadinstitute.hail.Utils._
@@ -45,10 +46,14 @@ class Genotype(private val _gt: Int,
   private val _dp: Int,
   private val _gq: Int,
   private val _pl: Array[Int],
-  val fakeRef: Boolean) extends Serializable {
+  val flags: Int) extends Serializable {
 
   require(_gt >= -1, s"invalid _gt value: ${_gt}")
   require(_dp >= -1, s"invalid _dp value: ${_dp}")
+  if (blocked) {
+    require(_ad == null)
+    require(_pl.length == 3)
+  }
 
   def check(v: Variant) {
     assert(gt.forall(i => i >= 0 && i < v.nGenotypes))
@@ -61,7 +66,7 @@ class Genotype(private val _gt: Int,
     dp: Option[Int] = this.dp,
     gq: Option[Int] = this.gq,
     pl: Option[Array[Int]] = this.pl,
-    fakeRef: Boolean = this.fakeRef): Genotype = Genotype(gt, ad, dp, gq, pl, fakeRef)
+    flags: Int = this.flags): Genotype = Genotype(gt, ad, dp, gq, pl, flags)
 
   override def equals(that: Any): Boolean = that match {
     case g: Genotype =>
@@ -83,7 +88,7 @@ class Genotype(private val _gt: Int,
       .append(_dp)
       .append(_gq)
       .append(util.Arrays.hashCode(_pl))
-      .append(fakeRef)
+      .append(flags)
       .toHashCode
 
   def gt: Option[Int] =
@@ -114,6 +119,10 @@ class Genotype(private val _gt: Int,
 
   def pl: Option[Array[Int]] = Option(_pl)
 
+  def fakeRef: Boolean = Genotype.flagFakeRef(flags)
+
+  def blocked: Boolean = Genotype.flagBlocked(flags)
+
   def isHomRef: Boolean = Genotype.isHomRef(_gt)
 
   def isHet: Boolean = Genotype.isHet(_gt)
@@ -134,12 +143,48 @@ class Genotype(private val _gt: Int,
 
   def nNonRefAlleles: Option[Int] = Genotype.nNonRefAlleles(_gt)
 
+  def toRow = {
+    var simple = false
+    var adi = 0
+
+    if (_gt >= 0
+      && _ad != null) {
+      val p = Genotype.gtPair(_gt)
+      val j = p.j
+      val k = p.k
+      if (j == k) {
+        simple = _ad.zipWithIndex.forall { case (ad, i) => ad == 0 || i == j }
+        adi = _ad(j)
+      }
+    }
+
+    // FIXME store-gq
+    assert(gq == pl.map(Genotype.gqFromPL))
+
+    val od = ad.flatMap { adx =>
+      dp.map { dpx => dpx - adx.sum }
+    }
+
+    Row.fromSeq(Array(
+      gt.getOrElse(null),
+      if (simple) adi else null,
+      if (simple) null else ad.map(a => a: Seq[Int]).orNull,
+      od.getOrElse(null),
+      pl.map(a => a: Seq[Int]).orNull,
+      flags))
+  }
+
   override def toString: String = {
     val b = new StringBuilder
 
-    b.append(gt.map { gt =>
-      val p = Genotype.gtPair(gt)
-      s"${p.j}/${p.k}"
+    b.append(gt.map {
+      gt =>
+        val p = Genotype.gtPair(gt)
+        s"${
+          p.j
+        }/${
+          p.k
+        }"
     }.getOrElse("./."))
     b += ':'
     b.append(ad.map(_.mkString(",")).getOrElse("."))
@@ -153,15 +198,18 @@ class Genotype(private val _gt: Int,
     b.result()
   }
 
-  def pAB(theta: Double = 0.5): Option[Double] = ad.map { case Array(refDepth, altDepth) =>
-    val d = new BinomialDistribution(refDepth + altDepth, theta)
-    val minDepth = refDepth.min(altDepth)
-    val minp = d.probability(minDepth)
-    val mincp = d.cumulativeProbability(minDepth)
-    (2 * mincp - minp).min(1.0).max(0.0)
+  def pAB(theta: Double = 0.5): Option[Double] = ad.map {
+    case Array(refDepth, altDepth) =>
+      val d = new BinomialDistribution(refDepth + altDepth, theta)
+      val minDepth = refDepth.min(altDepth)
+      val minp = d.probability(minDepth)
+      val mincp = d.cumulativeProbability(minDepth)
+      (2 * mincp - minp).min(1.0).max(0.0)
   }
 
-  def fractionReadsRef(): Option[Double] = ad.flatMap { arr => divOption(arr(0), arr.sum) }
+  def fractionReadsRef(): Option[Double] = ad.flatMap {
+    arr => divOption(arr(0), arr.sum)
+  }
 
   def toJSON: JValue = JObject(
     ("gt", gt.map(JInt(_)).getOrElse(JNull)),
@@ -169,19 +217,72 @@ class Genotype(private val _gt: Int,
     ("dp", dp.map(JInt(_)).getOrElse(JNull)),
     ("gq", gq.map(JInt(_)).getOrElse(JNull)),
     ("pl", pl.map(pls => JArray(pls.map(JInt(_)).toList)).getOrElse(JNull)),
-    ("fakeRef", JBool(fakeRef)))
+    ("flags", JInt(flags)))
 }
 
 object Genotype {
-  def apply(gtx: Int): Genotype = new Genotype(gtx, null, -1, -1, null, false)
+  def apply(gtx: Int): Genotype = new Genotype(gtx, null, -1, -1, null, 0)
 
   def apply(gt: Option[Int] = None,
     ad: Option[Array[Int]] = None,
     dp: Option[Int] = None,
     gq: Option[Int] = None,
     pl: Option[Array[Int]] = None,
-    fakeRef: Boolean = false): Genotype = {
-    new Genotype(gt.getOrElse(-1), ad.map(_.toArray).orNull, dp.getOrElse(-1), gq.getOrElse(-1), pl.map(_.toArray).orNull, fakeRef)
+    flags: Int = 0): Genotype = {
+    new Genotype(gt.getOrElse(-1), ad.map(_.toArray).orNull, dp.getOrElse(-1), gq.getOrElse(-1), pl.map(_.toArray).orNull, flags)
+  }
+
+  def fromRow(r: Row, v: Variant): Genotype = {
+    def toArray(s: Seq[Int]): Array[Int] =
+      if (s == null)
+        null
+      else
+        s.toArray
+
+    if (r == null)
+      null
+    else {
+      val gt = r.getOrIfNull[Int](0, -1)
+
+      val ad =
+        if (!r.isNullAt(1)) {
+          val p = Genotype.gtPair(gt)
+          val j = p.j
+          val k = p.k
+          assert(j == k)
+
+          val ad = new Array[Int](v.nAlleles)
+          assert(gt != -1)
+          ad(j) = r.getInt(1)
+          ad
+        } else
+          toArray(r.getSeq[Int](2))
+
+      val od = r.getOrIfNull[Int](3, -1)
+
+      val dp =
+        if (od != -1 && ad != null)
+          od + ad.sum
+        else
+          -1
+
+      val pl = toArray(r.getSeq[Int](4))
+
+      val gq =
+        if (pl == null)
+          -1
+        else
+          Genotype.gqFromPL(pl)
+
+      val flags = r.getInt(5)
+
+      new Genotype(gt,
+        ad,
+        dp,
+        gq,
+        pl,
+        flags)
+    }
   }
 
   def schema: DataType = StructType(Array(
@@ -190,7 +291,8 @@ object Genotype {
     StructField("dp", IntegerType),
     StructField("gq", IntegerType),
     StructField("pl", ArrayType(IntegerType)),
-    StructField("fakeRef", BooleanType)))
+    StructField("flags", IntegerType)
+  ))
 
   final val flagMultiHasGTBit = 0x1
   final val flagMultiGTRefBit = 0x2
@@ -203,6 +305,8 @@ object Genotype {
   final val flagSimpleDPBit = 0x80
   final val flagSimpleGQBit = 0x100
   final val flagFakeRefBit = 0x200
+  final val flagBlockedBit = 0x400
+  final val flagSampleZero = 0x800
 
   def flagHasGT(isBiallelic: Boolean, flags: Int) =
     if (isBiallelic)
@@ -266,6 +370,14 @@ object Genotype {
   def flagFakeRef(flags: Int): Boolean = (flags & flagFakeRefBit) != 0
 
   def flagSetFakeRef(flags: Int): Int = flags | flagFakeRefBit
+
+  def flagBlocked(flags: Int): Boolean = (flags & flagBlockedBit) != 0
+
+  def flagSetBlocked(flags: Int): Int = flags | flagBlockedBit
+
+  def flagSampleZero(flags: Int): Boolean = (flags & flagSampleZero) != 0
+
+  def flagSetSampleZero(flags: Int): Int = flags | flagSampleZero
 
   def gqFromPL(pl: Array[Int]): Int = {
     var m = 99
@@ -371,10 +483,16 @@ object Genotype {
 
   def gtIndex(p: GTPair): Int = gtIndex(p.j, p.k)
 
-  def read(v: Variant, a: ByteIterator): Genotype = {
+  def read(v: Variant, a: ByteIterator): (Int, Genotype) = {
     val isBiallelic = v.isBiallelic
 
     val flags = a.readULEB128()
+
+    val sample: Int =
+      if (flagSampleZero(flags))
+        0
+      else
+        a.readULEB128()
 
     val gt: Int =
       if (flagHasGT(isBiallelic, flags)) {
@@ -416,7 +534,7 @@ object Genotype {
 
     val pl: Array[Int] =
       if (flagHasPL(flags)) {
-        val pla = new Array[Int](v.nGenotypes)
+        val pla = new Array[Int](if (flagBlocked(flags)) 3 else v.nGenotypes)
         if (gt >= 0) {
           var i = 0
           while (i < gt) {
@@ -448,7 +566,7 @@ object Genotype {
       } else
         -1
 
-    new Genotype(gt, ad, dp, gq, pl, flagFakeRef(flags))
+    (sample, new Genotype(gt, ad, dp, gq, pl, flags))
   }
 
   def gtIndexWithSwap(i: Int, j: Int): Int = {
@@ -537,13 +655,19 @@ class GenotypeBuilder(v: Variant) {
   private var dp: Int = 0
   private var gq: Int = 0
   private var pl: Array[Int] = _
+  private var sample: Int = 0
 
   def clear() {
     flags = 0
+    sample = 0
   }
 
   def hasGT: Boolean =
     Genotype.flagHasGT(isBiallelic, flags)
+
+  def setSample(newSample: Int) {
+    sample = newSample
+  }
 
   def setGT(newGT: Int) {
     if (newGT < 0)
@@ -578,14 +702,16 @@ class GenotypeBuilder(v: Variant) {
   }
 
   def setPL(newPL: Array[Int]) {
-    if (newPL.length != nGenotypes)
-      fatal(s"invalid PL field `${newPL.mkString(",")}': expected $nGenotypes values, but got ${newPL.length}.")
     flags = Genotype.flagSetHasPL(flags)
     pl = newPL
   }
 
   def setFakeRef() {
     flags = Genotype.flagSetFakeRef(flags)
+  }
+
+  def setBlocked() {
+    flags = Genotype.flagSetBlocked(flags)
   }
 
   def set(g: Genotype) {
@@ -596,6 +722,8 @@ class GenotypeBuilder(v: Variant) {
     g.pl.foreach(setPL)
     if (g.fakeRef)
       setFakeRef()
+    if (g.blocked)
+      setBlocked()
   }
 
   def write(b: mutable.ArrayBuilder[Byte]) {
@@ -606,24 +734,13 @@ class GenotypeBuilder(v: Variant) {
     val hasGQ = Genotype.flagHasGQ(flags)
     val hasPL = Genotype.flagHasPL(flags)
 
+    val blocked = Genotype.flagBlocked(flags)
+
     var j = 0
     var k = 0
-    if (hasGT) {
-      val p = Genotype.gtPair(gt)
-      j = p.j
-      k = p.k
-      if (hasAD) {
-        var i = 0
-        var simple = true
-        while (i < ad.length && simple) {
-          if (i != j && i != k && ad(i) != 0)
-            simple = false
-          i += 1
-        }
-        if (simple)
-          flags = Genotype.flagSetSimpleAD(flags)
-      }
-    }
+
+    if (sample == 0)
+      flags = Genotype.flagSetSampleZero(flags)
 
     var adsum = 0
     if (hasAD && hasDP) {
@@ -647,6 +764,9 @@ class GenotypeBuilder(v: Variant) {
     */
 
     b.writeULEB128(flags)
+
+    if (sample != 0)
+      b.writeULEB128(sample)
 
     if (hasGT && !Genotype.flagStoresGT(isBiallelic, flags))
       b.writeULEB128(gt)

@@ -3,6 +3,7 @@ package org.broadinstitute.hail.variant.vsm
 import org.apache.spark.rdd.RDD
 import org.broadinstitute.hail.{SparkSuite, TempDir}
 import org.broadinstitute.hail.Utils._
+import org.broadinstitute.hail.variant._
 import org.broadinstitute.hail.annotations._
 import org.broadinstitute.hail.check.Prop._
 import org.broadinstitute.hail.driver._
@@ -135,7 +136,7 @@ class VSMSuite extends SparkSuite {
       new VariantDataset(mdata1, rdd6))
 
     for (i <- vdss.indices;
-         j <- vdss.indices) {
+      j <- vdss.indices) {
       if (i == j)
         assert(vdss(i) == vdss(j))
       else
@@ -148,7 +149,8 @@ class VSMSuite extends SparkSuite {
       val f = tmpDir.createTempFile(extension = ".vds")
       vsm.write(sqlContext, f)
       val vsm2 = VariantSampleMatrix.read(sqlContext, f)
-      vsm2.same(vsm)
+
+      vsm2.readWriteSame(vsm)
     }
 
     p.check()
@@ -211,7 +213,7 @@ class VSMSuite extends SparkSuite {
       filtered.write(sqlContext, filteredOut, compress = true)
 
       val filtered2 = VariantSampleMatrix.read(sqlContext, filteredOut)
-      assert(filtered2.same(filtered))
+      assert(filtered2.readWriteSame(filtered))
     }
   }
 

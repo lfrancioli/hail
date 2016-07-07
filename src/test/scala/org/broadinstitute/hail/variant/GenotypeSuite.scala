@@ -19,7 +19,8 @@ object GenotypeSuite {
     val gb = new GenotypeBuilder(v)
     gb.set(g)
     gb.write(ab)
-    val g2 = Genotype.read(v, new ByteIterator(ab.result()))
+    val (s, g2) = Genotype.read(v, new ByteIterator(ab.result()))
+    assert(s == 0)
     //println(s"g = $g, g2 = $g2")
     g == g2
   }

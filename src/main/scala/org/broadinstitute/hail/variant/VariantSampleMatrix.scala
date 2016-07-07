@@ -9,11 +9,13 @@ import org.apache.spark.{SparkContext, SparkEnv}
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.annotations._
 import org.broadinstitute.hail.check.Gen
+import org.broadinstitute.hail.driver.SplitMulti
 import org.broadinstitute.hail.expr._
 import org.broadinstitute.hail.utils.{Interval, IntervalTree}
 import org.broadinstitute.hail.vcf.BufferedLineIterator
 import org.kududb.spark.kudu.{KuduContext, _}
 
+import scala.collection.mutable
 import scala.io.Source
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
@@ -105,8 +107,11 @@ object VariantSampleMatrix {
   }
 
   def read(sqlContext: SQLContext, dirname: String, skipGenotypes: Boolean = false): VariantDataset = {
+    import sqlContext.implicits._
 
     val metadata = readMetadata(sqlContext, dirname, skipGenotypes)
+    val nSamples = metadata.nSamples
+
     val vaSignature = metadata.vaSignature
 
     val df = sqlContext.read.parquet(dirname + "/rdd.parquet")
@@ -118,19 +123,23 @@ object VariantSampleMatrix {
         metadata.copy(sampleIds = IndexedSeq.empty[String],
           sampleAnnotations = IndexedSeq.empty[Annotation]),
         df.select("variant", "annotations")
+          .filter($"variant".isNotNull)
           .map(row => (row.getVariant(0),
             if (vaRequiresConversion) SparkAnnotationImpex.importAnnotation(row.get(1), vaSignature) else row.get(1),
             Iterable.empty[Genotype])))
-    else
+    else {
       new VariantSampleMatrix(
         metadata,
-        df.rdd.map { row =>
-          val v = row.getVariant(0)
-
-          (v,
-            if (vaRequiresConversion) SparkAnnotationImpex.importAnnotation(row.get(1), vaSignature) else row.get(1),
-            row.getGenotypeStream(v, 2))
+        df.mapPartitions { it =>
+          BlockedGenotypes.unblock(nSamples,
+            it.map { row =>
+              val v = row.getVariant(0)
+              (v,
+                if (vaRequiresConversion) SparkAnnotationImpex.importAnnotation(row.get(1), vaSignature) else row.get(1),
+                row.getGenotypeStream(v, 2))
+            })
         })
+    }
   }
 
   def kuduRowType(vaSignature: Type): Type = TStruct("variant" -> Variant.t,
@@ -228,6 +237,187 @@ object VSMSubgen {
 
   val realistic = random.copy(
     tGen = Genotype.genRealistic)
+}
+
+// FIXME integrate into VSM read/write
+// FIXME store samples differences - 1 (GS)
+object BlockedGenotypes {
+
+  def schema(vaSchema: DataType): StructType =
+    StructType(Array(
+      StructField("variant", Variant.schema),
+      StructField("annotations", vaSchema),
+      StructField("genotypes", GenotypeStream.schema)
+    ))
+
+  def gqBucket(gq: Int): Int = {
+    if (gq < 70)
+      gq
+    else if (gq < 80)
+      70
+    else if (gq < 90)
+      80
+    else
+      90
+  }
+
+  def sameBlock(leader: Genotype, g: Genotype): Boolean = {
+    leader != null &&
+      leader.isHomRef && g.isHomRef &&
+      leader.dp.isDefined && g.dp.isDefined &&
+      leader.pl.isDefined && g.pl.isDefined &&
+      // ignore blocked
+      (leader.fakeRef == g.fakeRef) &&
+      leader.gq.isDefined && g.gq.isDefined &&
+      leader.gq.map(gqBucket) == g.gq.map(gqBucket) // && false
+  }
+
+  def compressAlts(g: Genotype): Genotype = {
+    assert(g.dp.isDefined)
+
+    if (g.blocked)
+      return g
+
+    val newPL = Array.fill[Int](3)(Int.MaxValue)
+    for ((plx, i) <- g.pl.get.zipWithIndex) {
+      val p = Genotype.gtPair(i)
+      val nAlt = (p.j == i).toInt + (p.k == i).toInt
+      newPL(nAlt) = newPL(nAlt).min(plx)
+    }
+
+    Genotype(g.gt,
+      None,
+      g.dp,
+      g.gq,
+      Some(newPL),
+      g.flags | Genotype.flagBlockedBit)
+  }
+
+  def merge(leader: Genotype, g: Genotype): Genotype = {
+    val compLeader = compressAlts(leader)
+    val compG = compressAlts(g)
+
+    val newPL =
+      compLeader.pl.get.zip(compG.pl.get).map { case (x, y) => x min y }
+
+    Genotype(Some(0),
+      None,
+      Some(compLeader.dp.get min compG.dp.get),
+      Some(Genotype.gqFromPL(newPL)),
+      Some(newPL),
+      compLeader.flags)
+  }
+
+  def block(nSamples: Int, it: Iterator[(Variant, Annotation, Iterable[Genotype])]): Iterator[(Variant, Annotation, GenotypeStream)] = {
+
+    val blockLeader = new Array[Genotype](nSamples)
+    val blockVariant = new Array[Int](nSamples)
+    val blockIndex = new Array[Int](nSamples)
+
+    val q = new mutable.Queue[(Variant, Annotation, Array[Int], mutable.ArrayBuffer[Genotype])]
+    var qHeadVariant = 0
+
+    def processVariant() {
+      val (v, va, gs) = it.next()
+
+      val sab = new mutable.ArrayBuilder.ofInt
+      val gab = new mutable.ArrayBuffer[Genotype]
+      var sample = 0
+
+      gs.zipWithIndex.foreach { case (g, s) =>
+        val leader = blockLeader(s)
+        if (sameBlock(leader, g)) {
+          blockLeader(s) = merge(leader, g)
+        } else {
+          if (leader != null)
+            q(blockVariant(s) - qHeadVariant)._4(blockIndex(s)) = leader
+
+          blockLeader(s) = g
+          blockVariant(s) = qHeadVariant + q.size
+          blockIndex(s) = gab.size
+          sab += s - sample
+          sample = s
+          gab += null
+        }
+      }
+
+      q += ((v, va, sab.result(), gab))
+    }
+
+    var i = 0
+    while (it.hasNext
+      && i < 50) {
+      processVariant()
+      i += 1
+    }
+
+    new Iterator[(Variant, Annotation, GenotypeStream)] {
+      def hasNext = q.nonEmpty
+
+      def next = {
+        for (s <- blockLeader.indices) {
+          val leader = blockLeader(s)
+          if (blockVariant(s) == qHeadVariant) {
+            q.head._4(blockIndex(s)) = leader
+            blockLeader(s) = null
+          }
+        }
+
+        val (v, va, ss, gs) = q.dequeue()
+        qHeadVariant += 1
+
+        if (it.hasNext)
+          processVariant()
+
+        val gsb = new GenotypeStreamBuilder(v, compress = true)
+        ss.zip(gs).foreach { case (s, g) =>
+          gsb += (s, g)
+        }
+        (v, va, gsb.result())
+      }
+    }
+  }
+
+  def expandBlocked(v: Variant, g: Genotype): Genotype = {
+    if (!g.blocked)
+      return g
+
+    val ad = Array.tabulate[Int](v.nAlleles) { i =>
+      if (i == 0)
+        g.dp.get
+      else
+        0
+    }
+
+    val pl = Array.tabulate[Int](v.nGenotypes) { i =>
+      val p = Genotype.gtPair(i)
+      val nAlt = (p.j == i).toInt + (p.k == i).toInt
+      g.pl.get(nAlt)
+    }
+
+    Genotype(Some(0),
+      Some(ad),
+      g.dp,
+      g.gq,
+      Some(pl),
+      g.flags & ~Genotype.flagBlockedBit)
+  }
+
+  def unblock(nSamples: Int, it: Iterator[(Variant, Annotation, GenotypeStream)]): Iterator[(Variant, Annotation, Iterable[Genotype])] = {
+    val runningGS = new Array[Genotype](nSamples)
+
+    new Iterator[(Variant, Annotation, Iterable[Genotype])] {
+      def hasNext = it.hasNext
+
+      def next = {
+        val (v, va, gs) = it.next()
+        for ((s, g) <- gs.sampleGenotypeIterator)
+          runningGS(s) = g
+        (v, va, runningGS.map(g => expandBlocked(v, g)): Iterable[Genotype])
+      }
+    }
+  }
+
 }
 
 class VariantSampleMatrix[T](val metadata: VariantMetadata,
@@ -766,19 +956,24 @@ class RichVDS(vds: VariantDataset) {
   }
 
   def write(sqlContext: SQLContext, dirname: String, compress: Boolean = true) {
+
     writeMetadata(sqlContext, dirname, compress)
 
     val vaSignature = vds.vaSignature
     val vaRequiresConversion = SparkAnnotationImpex.requiresConversion(vaSignature)
 
-    val rowRDD = vds.rdd
-      .map {
-        case (v, va, gs) =>
-          Row.fromSeq(Array(v.toRow,
-            if (vaRequiresConversion) SparkAnnotationImpex.exportAnnotation(va, vaSignature) else va,
-            gs.toGenotypeStream(v, compress).toRow))
+    val localNSamples = vds.nSamples
+    val rowRDD = vds.rdd.mapPartitions { it =>
+        BlockedGenotypes.block(localNSamples, it)
       }
-    sqlContext.createDataFrame(rowRDD, makeSchema())
+      .map { case (v, va, gs) =>
+        Row(
+          v.toRow,
+          if (vaRequiresConversion) SparkAnnotationImpex.exportAnnotation(va, vaSignature) else va,
+          gs.toRow)
+      }
+
+    sqlContext.createDataFrame(rowRDD, BlockedGenotypes.schema(vaSignature.schema))
       .write.parquet(dirname + "/rdd.parquet")
     // .saveAsParquetFile(dirname + "/rdd.parquet")
   }
@@ -845,7 +1040,8 @@ class RichVDS(vds: VariantDataset) {
         vaSignature = newSignatures2,
         rdd = vds1.rdd.map {
           case (v, va, gs) =>
-            (v, f2(f1(va)), gs.lazyMap(g => g.copy(fakeRef = false)))
+            (v, f2(f1(va)), gs.lazyMap(g => g.copy(
+              flags = g.flags & ~Genotype.flagFakeRefBit)))
         })
     } else
       vds
@@ -855,4 +1051,32 @@ class RichVDS(vds: VariantDataset) {
     vds.copy(rdd = vds.rdd.map { case (v, va, gs) =>
       (v, va, gs.toGenotypeStream(v, compress = compress))
     })
+
+  // FIXME make same take T comparator
+  def readWriteSame(that: VariantSampleMatrix[Genotype]): Boolean = {
+    val metadataSame = vds.metadata == that.metadata
+    if (!metadataSame)
+      println("metadata were not the same")
+    metadataSame &&
+      vds.rdd.map { case (v, va, gs) => (v, (va, gs)) }
+        .fullOuterJoin(that.rdd.map { case (v, va, gs) => (v, (va, gs)) })
+        .map {
+          case (v, (Some((va1, it1)), Some((va2, it2)))) =>
+            val annotationsSame = va1 == va2
+            if (!annotationsSame)
+              println(s"annotations $va1, $va2 were not the same")
+            val genotypesSame = (it1, it2).zipped.forall { case (g1, g2) =>
+              val r = g1.gt == g2.gt &&
+                (!g1.isCalledNonRef || g1 == g2)
+              if (!r)
+                println(s"genotypes $g1, $g2 were not (read/write) same")
+              r
+            }
+            annotationsSame && genotypesSame
+          case (v, _) =>
+            println(s"Found unmatched variant $v")
+            false
+        }.fold(true)(_ && _)
+  }
+
 }
