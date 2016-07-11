@@ -11,7 +11,7 @@ suppressWarnings(library("SKAT"))
 args <- commandArgs(trailingOnly = TRUE)
 json_data <- fromJSON(file("stdin"), simplifyVector=TRUE, simplifyMatrix=TRUE)
 
-# get phenotype vector
+# get variables
 Y <- json_data$Y
 yType <- json_data$yType
 nResampling <- json_data$nResampling
@@ -24,6 +24,10 @@ imputeMethod <- json_data$imputeMethod
 rCorr <- json_data$rCorr
 missingCutoff <- json_data$missingCutoff
 estimateMAF <- json_data$estimateMAF
+seed <- json_data$seed
+
+# Set random seed
+set.seed(seed)
 
 # calculate null model
 if ("COV" %in% names(json_data)) {
@@ -40,21 +44,23 @@ if ("COV" %in% names(json_data)) {
                                            Adjustment = adjustment))
 }
 
-cat(obj$id_include, file="~/debugSKATO.txt")
-
 group_data <- json_data$groups
 
 runSkatO <- function(name, data) {
 	 Z <- t(data)
-	 suppressWarnings(res <- SKAT(Z, obj,
-	                              kernel = kernel,
-	                              method = method,
-	                              weights.beta = weightsBeta,
-	                              impute.method = imputeMethod,
-	                              r.corr = rCorr,
-	                              missing_cutoff = missingCutoff,
-	                              estimate_MAF = estimateMAF)
-	                  )
+	 
+	 res <- try(SKAT(Z, obj,
+	               kernel = kernel,
+	               method = method,
+	               weights.beta = weightsBeta,
+	               impute.method = imputeMethod,
+	               r.corr = rCorr,
+	               missing_cutoff = missingCutoff,
+	               estimate_MAF = estimateMAF))
+	 
+	 if (class(res) == "try-error") {
+	   res <- list(p.value = NA, n.marker = NA, p.value.noadj=NA, n.marker.test=NA)
+	 }
 	 
 	 return(list(groupName = unbox(name), 
 	             pValue = unbox(res$p.value), 

@@ -75,11 +75,6 @@ class GroupSuite extends SparkSuite {
       }
     }
 
-    writeTextFile(configSkato, sc.hadoopConfiguration) {w =>
-      w.write("hail.skato.R Rscript\n")
-      w.write("hail.skato.script /Users/jigold/hail/src/test/resources/testSKATO.r\n")
-    }
-
     val rdd = sc.parallelize(variants.zipWithIndex.map { case (v, i) =>
       val b = new GenotypeStreamBuilder(v, true)
       val genoBuilder = new GenotypeBuilder(v)
@@ -96,13 +91,6 @@ class GroupSuite extends SparkSuite {
     val vds: VariantDataset = VariantSampleMatrix[Genotype](VariantMetadata(sampleIds.toArray), rdd).copy(vaSignature = signatures, wasSplit = true)
     var s = State(sc, sqlContext, vds = vds)
 
-
-    val skatoOutput = tmpDir.createTempFile("skatoTest", ".tsv")
-    s = AnnotateSamplesTable.run(s, Array("-i", phenotypeTable, "-r", "sa.mypheno", "-t", "Phenotype1: String, Phenotype2: Boolean"))
-    s = GroupTestSKATO.run(s, Array("-k", "va.gene", "-y", "sa.mypheno.Phenotype2",
-      "--config", configSkato, "--block-size", "1", "-o", skatoOutput,
-    "--missing-cutoff", "1.0", "--estimate-maf", "2"))
-    sys.exit()
     s = CreateGroup.run(s, Array("-k", "va.gene", "-v", "g.nNonRefAlleles", "-a", "sum"))
 
     val sumResults = s.group.map { case (k, v) => (k.map(_.toString), v) }

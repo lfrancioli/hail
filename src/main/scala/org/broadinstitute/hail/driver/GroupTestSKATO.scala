@@ -11,6 +11,7 @@ import org.json4s.jackson.JsonMethods._
 import java.io.{FileInputStream, IOException}
 import java.util.Properties
 import scala.collection.JavaConverters._
+import scala.util.Random
 
 object GroupTestSKATO extends Command {
 
@@ -37,6 +38,12 @@ object GroupTestSKATO extends Command {
 
     @Args4jOption(required = true, name = "-o", aliases = Array("--output"), usage = "path of output tsv")
     var output: String = _
+
+    @Args4jOption(required = false, name = "--seed", usage = "number to set random seed to [default=1]")
+    var seed: Int = 1
+
+    @Args4jOption(required = false, name = "--random-seed", usage = "use a random seed")
+    var randomize: Boolean = false
 
 
     //SKAT_Null_Model options
@@ -106,7 +113,7 @@ object GroupTestSKATO extends Command {
 
   def run(state: State, options: Options): State = {
     val vds = state.vds
-    val group = state.group
+    val sampleIds = vds.sampleIds
 
     val properties = try {
       val p = new Properties()
@@ -119,20 +126,50 @@ object GroupTestSKATO extends Command {
         fatal(s"could not open file: ${e.getMessage}")
     }
 
+    val yType = if (options.quantitative) "C" else "D"
+    val nResampling = options.nResampling
+    val typeResampling = options.typeResampling
+    val adjustment = !options.noAdjustment
+    val kernel = options.kernel
+    val method = options.method
+    val weightsBeta = options.weightsBeta
+    val imputeMethod = options.imputeMethod
+    val rCorr = options.rCorr
+    val missingCutoff = options.missingCutoff
+    val estimateMAF = options.estimateMAF
+    val quantitative = options.quantitative
+
     val R = properties.getProperty("hail.skato.R", "/usr/bin/Rscript")
-    val skatoScript = properties.getProperty("hail.skato.script", "src/test/resources/testSKATO.r")
+    val skatoScript = properties.getProperty("hail.skato.script", "src/dist/scripts/skato.r")
+
+    val rCorrArray = options.rCorr.split(",").map(_.toDouble)
+    if (!rCorrArray.forall(d => d >= 0.0 && d <= 1.0))
+      fatal(s"Arguments to --r-corr must be numeric, between 0.0 and 1.0, and comma-separated. Found ${options.rCorr}")
+
+    val weightBetaArray = options.weightsBeta.split(",").map(_.toDouble)
+    if (weightBetaArray.length != 2)
+      fatal(s"Must give two comma-separated arguments to --weights-beta. Found ${options.weightsBeta}")
 
     val availMethods = Set("davies", "liu", "liu.mod", "optimal.adj", "optimal")
-    if (!availMethods.contains(options.method))
+    if (!availMethods.contains(method))
       fatal("Did not recognize option specified for --method. Use one of [davies, liu, liu.mod, optimal.adj, optimal]")
 
     val availKernels = Set("linear", "linear.weighted", "IBS", "IBS.weighted", "quadratic", "2wayIX")
-    if (!availKernels.contains(options.kernel))
+    if (!availKernels.contains(kernel))
       fatal("Did not recognize option specified for --kernel. Use one of [linear, linear.weighted, IBS, IBS.weighted, quadratic, 2wayIX]")
 
     val availMafEstimate = Set(1, 2)
-    if (!availMafEstimate.contains(options.estimateMAF))
+    if (!availMafEstimate.contains(estimateMAF))
       fatal("Did not recognize option specified for --estimate-maf. Use one of [1, 2].")
+
+    val availResamplingTypes = Set("bootstrap", "bootstrap.fast", "permutation")
+    if (!availResamplingTypes.contains(typeResampling))
+      fatal("Did not recognize option specified for --type-resampling. Use one of [bootstrap, permutation, bootstrap.fast]. bootstrap.fast only available for non-quantitative variables")
+    if (quantitative && typeResampling == "bootstrap.fast")
+      fatal("Can only use bootstrap.fast for --type-resampling if -q is not set (dichotomous variables only).")
+
+    if (!(rCorrArray.length == 1 && rCorrArray(0) == 0.0) && kernel != "linear" && kernel != "linear.weighted")
+      fatal("Non-zero r.corr only can be used with linear or linear.weighted kernels")
 
     def toDouble(t: BaseType, code: String): Any => Double = t match {
       case TInt => _.asInstanceOf[Int].toDouble
@@ -168,30 +205,37 @@ object GroupTestSKATO extends Command {
       a(1) = sa
       (covQ.map(_()), covToDouble).zipped.map(_.map(_))
     }
+    val nCovar = covT.size
+
+    val (yDefined, covDefined, samplesDefined) =
+      (ySA, covSA, sampleIds)
+        .zipped
+        .filter( (y, c, s) => y.isDefined && c.forall(_.isDefined))
+
+    if (samplesDefined.length < 1) {
+      val sb = new StringBuilder()
+      sb.append(s"No samples with non-missing phenotype [${options.ySA}]")
+      if (nCovar > 0)
+        sb.append(s" and covariates [${options.covSA}]")
+      fatal(sb.result())
+    }
+    info(s"${samplesDefined.length} samples with non-missing phenotypes")
+
+    val seed = if (options.randomize) Random.nextInt() else options.seed
+    info(s"Using a random seed of [$seed]")
 
     val cmd = Array(R, skatoScript)
 
     val localBlockSize = options.blockSize
 
     val ySABC = state.sc.broadcast(ySA)
-
-    val yType = if (options.quantitative) "C" else "D"
-    val nResampling = options.nResampling
-    val typeResampling = options.typeResampling
-    val adjustment = !options.noAdjustment
-    val kernel = options.kernel
-    val method = options.method
-    val weightsBeta = options.weightsBeta
-    val imputeMethod = options.imputeMethod
-    val rCorr = options.rCorr
-    val missingCutoff = options.missingCutoff
-    val estimateMAF = options.estimateMAF
+    val covSABC = state.sc.broadcast(covSA)
 
     def printContext(w: (String) => Unit) = {
       val y = pretty(JArray(ySABC.value.map{y => if (y.isDefined) JDouble(y.get) else JNull}.toList))
-      val cov = JArray(covSA.map{cov => JArray(cov.map{c => if (c.isDefined) JDouble(c.get) else JNull}.toList)}.toList)
-      w(
-        s"""{"yType":"$yType",
+      val cov = pretty(JArray(covSABC.value.map{cov => JArray(cov.map{c => if (c.isDefined) JDouble(c.get) else JNull}.toList)}.toList))
+      val covString = if (nCovar > 0) s""""COV":$cov,""" else ""
+      w( s"""{"yType":"$yType",
            |"nResampling":$nResampling,
            |"typeResampling":"$typeResampling",
            |"adjustment":$adjustment,
@@ -202,7 +246,9 @@ object GroupTestSKATO extends Command {
            |"rCorr":[$rCorr],
            |"missingCutoff":$missingCutoff,
            |"estimateMAF":$estimateMAF,
+           |"seed":$seed,
            |"Y":$y,
+           |$covString
            |"groups":{""".stripMargin)
     }
 
@@ -220,8 +266,8 @@ object GroupTestSKATO extends Command {
     }
 
     val groups = vds.rdd.map{case (v, va, gs) =>
-      (queriers.map{_(va).get}.toIndexedSeq, gs.map{g => g.nNonRefAlleles.getOrElse(9)})
-    }.groupByKey().persist(StorageLevel.MEMORY_AND_DISK)
+      (queriers.map{_(va).get}.toIndexedSeq, gs.map{g => g.nNonRefAlleles.getOrElse(9)}) //FIXME: Expand out arrays
+    }.groupByKey().persist(StorageLevel.MEMORY_AND_DISK) //FIXME: Remove None/null groups
 
     groups.mapPartitions{ it =>
       val pb = new java.lang.ProcessBuilder(cmd.toList.asJava)
