@@ -85,6 +85,7 @@ object ToplevelCommands {
   register(PrintSchema)
   register(ShowGlobalAnnotations)
   register(SingletonLDinTrios)
+  register(VariantPairs)
   register(VariantQC)
   register(VEP)
   register(Write)
