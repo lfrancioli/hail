@@ -245,11 +245,11 @@ object RareVariantsBurden extends Command {
     def run(state: State, options: Options): State = {
 
       //Get sample and variant stratifications
-      val saStrats = state.sc.broadcast(if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]())
-      val vaStrats = state.sc.broadcast(if(!options.vaStrat.isEmpty()) options.vaStrat.split(",") else Array[String]())
+      val saStrats = if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]()
+      val vaStrats = if(!options.vaStrat.isEmpty()) options.vaStrat.split(",") else Array[String]()
 
       //Get annotation queriers
-      val saQueriers = for (strat <- saStrats.value) yield {
+      val saQueriers = for (strat <- saStrats) yield {
         state.vds.querySA(strat)
       }
 
@@ -262,7 +262,7 @@ object RareVariantsBurden extends Command {
       val uniqueSaStrats = state.sc.broadcast(samplesByStrat.value.toSet)
 
       //Filter variants that have a MAF higher than what we're looking for in ALL stratifications
-      val maxAF = state.sc.broadcast(if(options.mraf > options.mdaf) options.mraf else options.mdaf)
+      val maxAF = if(options.mraf > options.mdaf) options.mraf else options.mdaf
       def rareVariantsFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) =>
 
         //Get AN and AC for each of the strats
@@ -288,7 +288,7 @@ object RareVariantsBurden extends Command {
           (ag, st) =>
             val af = if (an(st) > 0) ac(st) / an(st) else 0
             if (af > ag) af else ag
-        } < maxAF.value
+        } < maxAF
 
       }
 
@@ -299,14 +299,14 @@ object RareVariantsBurden extends Command {
 
       info("Computing gene burden")
 
-      val gb = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(
+      val gb = SparseVariantSampleMatrixRRDBuilder.buildByVAstoreVAandSA(
         state.vds.filterVariants(rareVariantsFilter),
         state.sc,
         partitioner,
-        vaStrats.value,
-        saStrats.value
+        vaStrats,
+        saStrats
       )({case (v,va) => geneAnn(va).get.toString}).mapValues(
-        {case svsm => new GeneBurdenResult(svsm, vaStrats.value, saStrats.value)}
+        {case svsm => new GeneBurdenResult(svsm, vaStrats, saStrats)}
       ).persist(StorageLevel.MEMORY_AND_DISK)
 
       info("Writing out results")
@@ -315,13 +315,13 @@ object RareVariantsBurden extends Command {
       new RichRDD(gb.map(
         {case (gene,gr) => gr.getSingleVariantsStats(gene)}
       )).writeTable(options.output +".single.txt",
-        Some("gene\t" + GeneBurdenResult.getSingleVariantHeaderString(vaStrats.value,saStrats.value)))
+        Some("gene\t" + GeneBurdenResult.getSingleVariantHeaderString(vaStrats,saStrats)))
 
       //Write out pair variants stats
       new RichRDD(gb.map(
         {case (gene,gr) => gr.getVariantPairsStats(gene)}
       )).writeTable(options.output +".pair.txt",
-        Some("gene\t" + GeneBurdenResult.getVariantPairHeaderString(vaStrats.value,saStrats.value)))
+        Some("gene\t" + GeneBurdenResult.getVariantPairHeaderString(vaStrats,saStrats)))
 
       state
     }
