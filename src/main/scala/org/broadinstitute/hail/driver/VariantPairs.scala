@@ -154,7 +154,7 @@ object VariantPairs extends Command {
 
     info("Computing gene burden")
 
-    val gb = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(
+    val gb = SparseVariantSampleMatrixRRDBuilder.buildByVAstoreVA(
       vsm = state.vds,
       sc = state.sc,
       partitioner = partitioner,
