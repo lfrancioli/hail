@@ -435,14 +435,14 @@ object SingletonLDinTrios extends Command {
 
     val partitioner = new HashPartitioner(options.number_partitions)
 
-    val variantAnnotations = state.sc.broadcast(if(!options.vaStrat.isEmpty()) options.vaStrat.split(",") else Array[String]())
+    val variantAnnotations = if(!options.vaStrat.isEmpty()) options.vaStrat.split(",") else Array[String]()
 
-    val sampleAnnotations = state.sc.broadcast(if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]())
+    val sampleAnnotations = if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]()
 
-    val triosRDD = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(trioVDS,state.sc , partitioner, variantAnnotations.value, sampleAnnotations.value)(
+    val triosRDD = SparseVariantSampleMatrixRRDBuilder.buildByVAstoreVAandSA(trioVDS,state.sc , partitioner, variantAnnotations, sampleAnnotations)(
       {case (v,va) => triosGeneAnn(va).get.toString}
     ).mapValues({
-      case svm => new VariantPairsCounter(svm,ped.value,variantAnnotations.value, sampleAnnotations.value)
+      case svm => new VariantPairsCounter(svm,ped.value,variantAnnotations, sampleAnnotations)
     }).persist(StorageLevel.MEMORY_AND_DISK)
 
     //Get unique variants that are found in pairs in our samples
@@ -470,7 +470,7 @@ object SingletonLDinTrios extends Command {
     //Only keep variants that are of interest and have a gene annotation (although they should match those of trios!)
     def variantsOfInterestFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => exacGeneAnn(va).isDefined && bcUniqueVariants.value.contains(v.toString)}
 
-    val exacRDD = SparseVariantSampleMatrixRRDBuilder.buildByAnnotation(exacVDS.filterVariants(variantsOfInterestFilter).
+    val exacRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(exacVDS.filterVariants(variantsOfInterestFilter).
       filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s)), state.sc, partitioner)(
       {case (v,va) => exacGeneAnn(va).get.toString}
     )
@@ -492,16 +492,16 @@ object SingletonLDinTrios extends Command {
     //val x = new SparseVector()
 
     //write results
-    val run_coseg = state.sc.broadcast(!options.nocoseg)
-    val run_em = state.sc.broadcast(!options.noem)
+    val run_coseg = !options.nocoseg
+    val run_em = !options.noem
 
     new RichRDD(callsByGene.map(
       {case(gene,(trios,exac)) =>
         val now = System.nanoTime
-        trios.addExac(exac,run_coseg.value,run_em.value)
+        trios.addExac(exac,run_coseg,run_em)
         info("Gene %s phasing done in %.1f seconds.".format(gene,(System.nanoTime - now) / 10e9))
         trios.toString(gene)
-      })).writeTable(options.output,header = Some("gene\t" + VariantPairsCounter.getHeaderString(run_coseg.value, run_em.value, variantAnnotations.value, sampleAnnotations.value)))
+      })).writeTable(options.output,header = Some("gene\t" + VariantPairsCounter.getHeaderString(run_coseg, run_em, variantAnnotations, sampleAnnotations)))
 
     state
   }
