@@ -71,6 +71,7 @@ object ToplevelCommands {
   register(ImportVCF)
   register(ImputeSex)
   register(LinearRegressionCommand)
+  register(LogisticRegressionCommand)
   register(MendelErrorsCommand)
   register(SplitMulti)
   register(PCA)

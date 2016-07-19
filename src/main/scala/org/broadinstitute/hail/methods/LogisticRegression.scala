@@ -1,105 +1,25 @@
 package org.broadinstitute.hail.methods
 
 import breeze.linalg._
-import org.apache.commons.math3.distribution.TDistribution
+import breeze.numerics._
 import org.apache.spark.rdd.RDD
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.annotations.Annotation
 import org.broadinstitute.hail.expr._
+import org.broadinstitute.hail.stats.NewtonOptimizer
 import org.broadinstitute.hail.variant._
-import scala.collection.mutable
 
 object LogRegStats {
   def `type`: Type = TStruct(
     ("nMissing", TInt),
     ("beta", TDouble),
     ("se", TDouble),
-    ("tstat", TDouble),
+    ("zstat", TDouble),
     ("pval", TDouble))
 }
 
 case class LogRegStats(nMissing: Int, beta: Double, se: Double, t: Double, p: Double) {
   def toAnnotation: Annotation = Annotation(nMissing, beta, se, t, p)
-}
-
-class LogRegBuilder extends Serializable {
-  private val missingRowIndices = new mutable.ArrayBuilder.ofInt()
-  private val rowsX = new mutable.ArrayBuilder.ofInt()
-  private val valsX = new mutable.ArrayBuilder.ofDouble()
-  private var sparseLength = 0 // length of rowsX and valsX (ArrayBuilder has no length), used to track missingRowIndices
-  private var sumX = 0
-  private var sumXX = 0
-  private var sumXY = 0.0
-  private var sumYMissing = 0.0
-
-  def merge(row: Int, g: Genotype, y: DenseVector[Double]): LogRegBuilder = {
-    g.gt match {
-      case Some(0) =>
-      case Some(1) =>
-        rowsX += row
-        valsX += 1d
-        sparseLength += 1
-        sumX += 1
-        sumXX += 1
-        sumXY += y(row)
-      case Some(2) =>
-        rowsX += row
-        valsX += 2d
-        sparseLength += 1
-        sumX += 2
-        sumXX += 4
-        sumXY += 2 * y(row)
-      case None =>
-        missingRowIndices += sparseLength
-        rowsX += row
-        valsX += 0d // placeholder for meanX
-        sparseLength += 1
-        sumYMissing += y(row)
-      case _ => throw new IllegalArgumentException("Genotype value " + g.gt.get + " must be 0, 1, or 2.")
-    }
-
-    this
-  }
-
-  // variant is atomic => combOp merge not called
-  def merge(that: LogRegBuilder): LogRegBuilder = {
-    missingRowIndices ++= that.missingRowIndices.result().map(_ + sparseLength)
-    rowsX ++= that.rowsX.result()
-    valsX ++= that.valsX.result()
-    sparseLength += that.sparseLength
-    sumX += that.sumX
-    sumXX += that.sumXX
-    sumXY += that.sumXY
-    sumYMissing += that.sumYMissing
-
-    this
-  }
-
-  def stats(y: DenseVector[Double], n: Int): Option[(SparseVector[Double], Double, Double, Int)] = {
-    val missingRowIndicesArray = missingRowIndices.result()
-    val nMissing = missingRowIndicesArray.size
-    val nPresent = n - nMissing
-
-    // all HomRef | all Het | all HomVar
-    if (sumX == 0 || (sumX == nPresent && sumXX == nPresent) || sumX == 2 * nPresent)
-      None
-    else {
-      val rowsXArray = rowsX.result()
-      val valsXArray = valsX.result()
-      val meanX = sumX.toDouble / nPresent
-
-      missingRowIndicesArray.foreach(valsXArray(_) = meanX)
-
-      // variant is atomic => combOp merge not called => rowsXArray is sorted (as expected by SparseVector constructor)
-      assert(rowsXArray.isIncreasing)
-
-      val x = new SparseVector[Double](rowsXArray, valsXArray, n)
-      val xx = sumXX + meanX * meanX * nMissing
-      val xy = sumXY + meanX * sumYMissing
-
-      Some((x, xx, xy, nMissing))
-    }
-  }
 }
 
 object LogisticRegression {
@@ -111,7 +31,7 @@ object LogisticRegression {
     // FIXME: improve message (or require Boolean and place in command)
     if (! y.forall(yi => yi == 0d || yi == 1d))
       fatal(s"For logistic regression, each phenotype value must be 0 or 1.")
-    
+
     val n = y.size
     val k = if (cov.isDefined) cov.get.cols else 0
     val d = n - k - 2
@@ -126,40 +46,61 @@ object LogisticRegression {
       case None => DenseMatrix.ones[Double](n, 1)
     }
 
-    val qt = qr.reduced.justQ(covAndOnes).t
-    val qty = qt * y
-
     val sc = vds.sparkContext
     val yBc = sc.broadcast(y)
-    val qtBc = sc.broadcast(qt)
-    val qtyBc = sc.broadcast(qty)
-    val yypBc = sc.broadcast((y dot y) - (qty dot qty))
-    val tDistBc = sc.broadcast(new TDistribution(null, d.toDouble))
+    val covAndOnesBc = sc.broadcast(covAndOnes)
 
     // FIXME: worth making a version of aggregateByVariantWithKeys using sample index rather than sample name?
     val sampleIndexBc = sc.broadcast(vds.sampleIds.zipWithIndex.toMap)
 
-    new LogisticRegression(vds
-      .aggregateByVariantWithKeys[LogRegBuilder](new LogRegBuilder())(
-      (lrb, v, s, g) => lrb.merge(sampleIndexBc.value(s), g, yBc.value),
-      (lrb1, lrb2) => lrb1.merge(lrb2))
-      .mapValues { lrb =>
-        lrb.stats(yBc.value, n).map { stats => {
-          val (x, xx, xy, nMissing) = stats
+    new LogisticRegression(vds.rdd
+      .map{ case (v, a, gs) =>
+        val (nCalled, gtSum) = gs.flatMap(_.gt).foldRight((0,0))((gt, acc) => (acc._1 + 1, acc._2 + gt))
 
-          val qtx = qtBc.value * x
-          val qty = qtyBc.value
-          val xxp: Double = xx - (qtx dot qtx)
-          val xyp: Double = xy - (qtx dot qty)
-          val yyp: Double = yypBc.value
+        println(v)
+        println(gs.flatMap(_.gt))
 
-          val b: Double = xyp / xxp
-          val se = math.sqrt((yyp / xxp - b * b) / d)
-          val t = b / se
-          val p = 2 * tDistBc.value.cumulativeProbability(-math.abs(t))
+        val logregstatsOpt =  // FIXME: improve this catch
+          if (gtSum == 0 || gtSum == 2 * nCalled || (gtSum == nCalled && gs.flatMap(_.gt).forall(_ == 1)) || nCalled == 0)
+            None
+          else {
+            val gtMean = gtSum.toDouble / nCalled
 
-          LogRegStats(nMissing, b, se, t, p) }
-        }
+            val gtArray = gs.map(_.gt.map(_.toDouble).getOrElse(gtMean)).toArray
+
+
+            val t = yBc.value
+            val X = DenseMatrix.horzcat(new DenseMatrix(n, 1, gtArray), covAndOnesBc.value) // FIXME: make more efficient
+
+            val b0 = DenseVector.fill(X.cols)(0d)
+
+            def logGrad(w: DenseVector[Double]): DenseVector[Double] = {
+              val r = sigmoid(X * w)
+              X.t * (r :- t)
+            }
+
+            def logHess(w: DenseVector[Double]): DenseMatrix[Double] = {
+              val r = sigmoid(X * w)
+              X.t * diag(r :* (1d - r)) * X
+            }
+
+            val bOpt = new NewtonOptimizer(logGrad, logHess).optimize(b0, tolerance = 1.0E-10, maxIter = 10)
+
+            // FIXME: deal with difference between perfect fit and other lack of convergence
+            // FIXME: catch breeze.linalg.MatrixSingularException
+
+            if (bOpt.isEmpty)
+              None
+            else {
+              val b = bOpt.get
+              val se = sqrt(diag(inv(logHess(b))))
+              val z = b :/ se
+              val sqrt2 = sqrt(2)
+              val p = z.map(c => 1 + erf(-abs(c) / sqrt2))
+              Some(LogRegStats(n - nCalled, b(0), se(0), z(0), p(0)))
+            }
+          }
+        (v, logregstatsOpt)
       }
     )
   }
