@@ -132,7 +132,11 @@ object VariantPairs extends Command {
 
     //Methods
     def toString(group_name : String) : String = {
-      variantsCounts.map(counts => counts.annotations.mkString("\t") + "\t%d\t%d\t%d\t%d".format(counts.nCarriers,counts.nNonCarriers, counts.sumCarriers, counts.sumNonCarriers)).mkString("\n")
+      if(variantsCounts.size>0) {
+        variantsCounts.map(counts => group_name + "\t" + counts.annotations.mkString("\t") + "\t%d\t%d\t%d\t%d".format(counts.nCarriers, counts.nNonCarriers, counts.sumCarriers, counts.sumNonCarriers)).mkString("\n")
+      }else{
+        group_name + "\t" + Array.fill(8 + vaStrat.size)("NA").mkString("\t")
+      }
     }
 
 
