@@ -68,7 +68,6 @@ object LogisticRegression {
 
             val gtArray = gs.map(_.gt.map(_.toDouble).getOrElse(gtMean)).toArray
 
-
             val t = yBc.value
             val X = DenseMatrix.horzcat(new DenseMatrix(n, 1, gtArray), covAndOnesBc.value) // FIXME: make more efficient
 

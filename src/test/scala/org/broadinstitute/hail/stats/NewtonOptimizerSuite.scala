@@ -65,6 +65,7 @@ class NewtonOptimizerSuite extends TestNGSuite {
     def logLogLkY(y: DenseVector[Double], t: DenseVector[Double]): Double =
       sum(breeze.numerics.log((t :* y) + ((1d - t) :* (1d - y))))
 
+    // against intercept only
     def logScoreStat(X: DenseMatrix[Double], t: DenseVector[Double]): Double = {
       val n = t.length
       val mu = sum(t) / n
@@ -73,8 +74,8 @@ class NewtonOptimizerSuite extends TestNGSuite {
       val z = norm(Qty)
       z * z / (mu * (1 - mu))
 
-      //val W = diag(DenseVector.fill[Double](n, mu * (1 - mu)))
-      //(X.t * (t - y)).t * inv(X.t * W * X) * (X.t * (t - y))
+      // val W = diag(DenseVector.fill[Double](n, mu * (1 - mu)))
+      // (X.t * (t - y)).t * inv(X.t * W * X) * (X.t * (t - y))
     }
 
     def firthGrad(w: DenseVector[Double]): DenseVector[Double] = {
