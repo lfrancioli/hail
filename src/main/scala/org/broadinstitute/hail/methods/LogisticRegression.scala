@@ -8,7 +8,13 @@ import org.broadinstitute.hail.expr._
 import org.broadinstitute.hail.stats.LogisticRegressionModel
 import org.broadinstitute.hail.variant._
 
-object LogRegStats {
+case class LogRegStats(nMissing: Int, beta: Double, se: Double, t: Double, p: Double, nIter: Int, converged: Boolean, exploded: Boolean) {
+  def toAnnotation: Annotation = Annotation(nMissing, beta, se, t, p, nIter, converged, exploded)
+}
+
+object LogisticRegression {
+  def name = "LogisticRegression"
+
   def `type`: Type = TStruct(
     ("nMissing", TInt),
     ("beta", TDouble),
@@ -18,14 +24,6 @@ object LogRegStats {
     ("nIter", TInt),
     ("converged", TBoolean),
     ("exploded", TBoolean))
-}
-
-case class LogRegStats(nMissing: Int, beta: Double, se: Double, t: Double, p: Double, nIter: Int, converged: Boolean, exploded: Boolean) {
-  def toAnnotation: Annotation = Annotation(nMissing, beta, se, t, p, nIter, converged, exploded)
-}
-
-object LogisticRegression {
-  def name = "LogisticRegression"
 
   def apply(vds: VariantDataset, y: DenseVector[Double], cov: Option[DenseMatrix[Double]]): LogisticRegression = {
     require(cov.forall(_.rows == y.size))
@@ -66,9 +64,9 @@ object LogisticRegression {
 //        println(v)
 //        println(gs.flatMap(_.gt))
 
-        val logregstatsOpt =  // FIXME: improve this catch
+        val annot =  // FIXME: improve this catch
           if (gtSum == 0 || gtSum == 2 * nCalled || (gtSum == nCalled && gs.flatMap(_.gt).forall(_ == 1)) || nCalled == 0)
-            None
+            Annotation(n - nCalled, Annotation.empty, Annotation.empty, Annotation.empty, Annotation.empty, 0, Annotation.empty, Annotation.empty)
           else {
             val gtMean = gtSum.toDouble / nCalled
 
@@ -77,18 +75,19 @@ object LogisticRegression {
             val X = DenseMatrix.horzcat(new DenseMatrix(n, 1, gtArray), covAndOnesBc.value) // FIXME: make more efficient
             val y = yBc.value
 
-            val fit = new LogisticRegressionModel(X,y).fit(b0Bc.value)
+            val fit = new LogisticRegressionModel(X, y).fit(b0Bc.value)
 
             if (fit.converged) {
               val waldStat = fit.waldTest()
-              Some(LogRegStats(n - nCalled, waldStat.b(0), waldStat.se(0), waldStat.z(0), waldStat.p(0), fit.nIter, fit.converged, fit.exploded))
+              Annotation(n - nCalled, waldStat.b(0), waldStat.se(0), waldStat.z(0), waldStat.p(0), fit.nIter, fit.converged, fit.exploded)
             }
-            else None
+            else
+              Annotation(n - nCalled, Annotation.empty, Annotation.empty, Annotation.empty, Annotation.empty, fit.nIter, fit.converged, fit.exploded)
           }
-        (v, logregstatsOpt)
+        (v, annot)
       }
     )
   }
 }
 
-case class LogisticRegression(rdd: RDD[(Variant, Option[LogRegStats])])
+case class LogisticRegression(rdd: RDD[(Variant, Annotation)])

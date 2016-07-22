@@ -46,6 +46,9 @@ class LogisticRegressionSuite extends SparkSuite {
     val qSe = s.vds.queryVA("va.logreg.se")._2
     val qZstat = s.vds.queryVA("va.logreg.zstat")._2
     val qPval = s.vds.queryVA("va.logreg.pval")._2
+    val qNIter = s.vds.queryVA("va.logreg.nIter")._2
+    val qConverged = s.vds.queryVA("va.logreg.converged")._2
+    val qExploded = s.vds.queryVA("va.logreg.exploded")._2
 
     val annotationMap = s.vds.variantsAndAnnotations
       .collect()
@@ -57,8 +60,9 @@ class LogisticRegressionSuite extends SparkSuite {
     def assertDouble(q: Querier, v: Variant, value: Double) =
       assert(D_==(q(annotationMap(v)).get.asInstanceOf[Double], value))
 
-    def assertEmpty(q: Querier, v: Variant) =
-      assert(q(annotationMap(v)).isEmpty)
+    def assertExploded(v: Variant) = assert(qExploded(annotationMap(v)).get.asInstanceOf[Boolean])
+
+    def assertNotConverged(v: Variant) = assert(!qConverged(annotationMap(v)).get.asInstanceOf[Boolean])
 
     /*
     comparing to output of R code:
@@ -94,14 +98,15 @@ class LogisticRegressionSuite extends SparkSuite {
     seperable => does not converge
     */
 
-    assertEmpty(qBeta, v3)
+    assertExploded(v3)
+    assertNotConverged(v3)
 
     // these all have constant genotypes after imputation
-    assertEmpty(qBeta, v6)
-    assertEmpty(qBeta, v7)
-    assertEmpty(qBeta, v8)
-    assertEmpty(qBeta, v9)
-    assertEmpty(qBeta, v10)
+    assertInt(qNIter, v6, 0)
+    assertInt(qNIter, v7, 0)
+    assertInt(qNIter, v8, 0)
+    assertInt(qNIter, v9, 0)
+    assertInt(qNIter, v10, 0)
   }
 
   /*

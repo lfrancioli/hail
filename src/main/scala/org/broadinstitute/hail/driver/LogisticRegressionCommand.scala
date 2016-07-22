@@ -98,14 +98,14 @@ object LogisticRegressionCommand extends Command {
 
     val logreg = LogisticRegression(vdsForCompleteSamples, y, cov)
 
-    val (newVAS, inserter) = vdsForCompleteSamples.insertVA(LogRegStats.`type`, pathVA)
+    val (newVAS, inserter) = vdsForCompleteSamples.insertVA(LogisticRegression.`type`, pathVA)
 
     state.copy(
       vds = vds.copy(
         rdd = vds.rdd.zipPartitions(logreg.rdd) { case (it, jt) =>
           it.zip(jt).map { case ((v, va, gs), (v2, comb)) =>
             assert(v == v2)
-            (v, inserter(va, comb.map(_.toAnnotation)), gs)
+            (v, inserter(va, Some(comb)), gs)
           }
         },
         vaSignature = newVAS
