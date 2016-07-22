@@ -14,7 +14,7 @@ object CompareVDS extends Command {
 
   def name = "comparevds"
 
-  def description = "Print number of samples, variants, and called genotypes in current dataset"
+  def description = "Print whether two VDS files are the same"
 
   def supportsMultiallelic = true
 

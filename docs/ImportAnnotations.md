@@ -490,7 +490,7 @@ The proper command line:
 $ hail [read / import / previous commands] \
     annotatevariants vcf \
         /user/me/1kg.chr22.vcf.bgz \
-        -r va.1kg \
+        -r va.`1kg` \
 ```
 
 The schema will include all the standard VCF annotations, as well as the info field:
