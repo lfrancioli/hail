@@ -37,8 +37,9 @@ class LogisticRegressionModel(X: DenseMatrix[Double], y: DenseVector[Double]) {
     var fisher = DenseMatrix.zeros[Double](m, m)
     var iter = 0
     var converged = false
+    var exploded = false
 
-    while (!converged && iter < maxIter) {
+    while (!converged && !exploded && iter < maxIter) {
       iter += 1
 
       mu = sigmoid(X * b)
@@ -56,15 +57,21 @@ class LogisticRegressionModel(X: DenseMatrix[Double], y: DenseVector[Double]) {
 //      println(s"fisher = $fisher")
 
       // catch singular here ... need to recognize when singular implies fit versus other issues
-      val bDiff = fisher \ score // could also return bDiff if last adjustment improves Wald accuracy. Conceptually better to have b, mu, and fisher correspond.
 
-      if (norm(bDiff) < tol)
-        converged = true
-      else
-        b -= bDiff
+      try {
+        val bDiff = fisher \ score // could also return bDiff if last adjustment improves Wald accuracy. Conceptually better to have b, mu, and fisher correspond.
+
+        if (norm(bDiff) < tol)
+          converged = true
+        else
+          b -= bDiff
+      }
+      catch {
+        case e: breeze.linalg.MatrixSingularException => exploded = true
+      }
     }
 
-    LogisticRegressionFit(b, mu, fisher, converged, iter)
+    LogisticRegressionFit(b, mu, fisher, converged, exploded, iter)
   }
 
   // could start from mu
@@ -92,6 +99,7 @@ case class LogisticRegressionFit(
   mu: DenseVector[Double],
   fisher: DenseMatrix[Double],
   converged: Boolean,
+  exploded: Boolean,
   nIter: Int) {
 
   def loglk(y: DenseVector[Double]): Double = sum(log((y :* mu) + ((1d - y) :* (1d - mu))))

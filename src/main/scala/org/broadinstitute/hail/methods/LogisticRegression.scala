@@ -6,7 +6,7 @@ import org.apache.spark.rdd.RDD
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.annotations.Annotation
 import org.broadinstitute.hail.expr._
-import org.broadinstitute.hail.stats.NewtonOptimizer
+import org.broadinstitute.hail.stats.LogisticRegressionModel
 import org.broadinstitute.hail.variant._
 
 object LogRegStats {
@@ -46,9 +46,13 @@ object LogisticRegression {
       case None => DenseMatrix.ones[Double](n, 1)
     }
 
+    val nullModel = new LogisticRegressionModel(covAndOnes, y)
+    val nullFit = nullModel.fit(nullModel.bInterceptOnly())
+
     val sc = vds.sparkContext
     val yBc = sc.broadcast(y)
     val covAndOnesBc = sc.broadcast(covAndOnes)
+    val b0Bc = sc.broadcast(DenseVector.vertcat(DenseVector(0d), nullFit.b))
 
     // FIXME: worth making a version of aggregateByVariantWithKeys using sample index rather than sample name?
     val sampleIndexBc = sc.broadcast(vds.sampleIds.zipWithIndex.toMap)
@@ -68,36 +72,16 @@ object LogisticRegression {
 
             val gtArray = gs.map(_.gt.map(_.toDouble).getOrElse(gtMean)).toArray
 
-            val t = yBc.value
             val X = DenseMatrix.horzcat(new DenseMatrix(n, 1, gtArray), covAndOnesBc.value) // FIXME: make more efficient
+            val y = yBc.value
 
-            val b0 = DenseVector.fill(X.cols)(0d)
+            val fit = new LogisticRegressionModel(X,y).fit(b0Bc.value)
 
-            def logGrad(w: DenseVector[Double]): DenseVector[Double] = {
-              val r = sigmoid(X * w)
-              X.t * (r :- t)
+            if (fit.converged) {
+              val waldStat = fit.waldTest()
+              Some(LogRegStats(n - nCalled, waldStat.b(0), waldStat.se(0), waldStat.z(0), waldStat.p(0)))
             }
-
-            def logHess(w: DenseVector[Double]): DenseMatrix[Double] = {
-              val r = sigmoid(X * w)
-              X.t * diag(r :* (1d - r)) * X
-            }
-
-            val bOpt = new NewtonOptimizer(logGrad, logHess).optimize(b0, tolerance = 1.0E-10, maxIter = 10)
-
-            // FIXME: deal with difference between perfect fit and other lack of convergence
-            // FIXME: catch breeze.linalg.MatrixSingularException
-
-            if (bOpt.isEmpty)
-              None
-            else {
-              val b = bOpt.get
-              val se = sqrt(diag(inv(logHess(b))))
-              val z = b :/ se
-              val sqrt2 = sqrt(2)
-              val p = z.map(c => 1 + erf(-abs(c) / sqrt2))
-              Some(LogRegStats(n - nCalled, b(0), se(0), z(0), p(0)))
-            }
+            else None
           }
         (v, logregstatsOpt)
       }
