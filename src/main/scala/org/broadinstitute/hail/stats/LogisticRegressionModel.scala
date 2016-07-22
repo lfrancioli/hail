@@ -4,7 +4,6 @@ import breeze.linalg._
 import breeze.numerics._
 import org.apache.commons.math3.distribution.ChiSquaredDistribution
 
-// need to catch linalg exceptions like singular matrix inversion
 class LogisticRegressionModel(X: DenseMatrix[Double], y: DenseVector[Double]) {
   require(y.length == X.rows)
 
@@ -105,6 +104,7 @@ case class LogisticRegressionFit(
   def loglk(y: DenseVector[Double]): Double = sum(log((y :* mu) + ((1d - y) :* (1d - mu))))
 
   def waldTest(): WaldStat = {
+    // need separate catch if we invert here rather than passing through
     val se = sqrt(diag(inv(fisher))) // breeze uses LU to invert, dgetri...for Wald, better to pass through from fit?  if just gt, can solve fisher \ (1,0,...,0) or use schur complement
     val z = b :/ se
     val sqrt2 = math.sqrt(2)

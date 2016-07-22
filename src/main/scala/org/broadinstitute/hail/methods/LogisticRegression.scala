@@ -1,7 +1,6 @@
 package org.broadinstitute.hail.methods
 
 import breeze.linalg._
-import breeze.numerics._
 import org.apache.spark.rdd.RDD
 import org.broadinstitute.hail.Utils._
 import org.broadinstitute.hail.annotations.Annotation
@@ -15,11 +14,14 @@ object LogRegStats {
     ("beta", TDouble),
     ("se", TDouble),
     ("zstat", TDouble),
-    ("pval", TDouble))
+    ("pval", TDouble),
+    ("nIter", TInt),
+    ("converged", TBoolean),
+    ("exploded", TBoolean))
 }
 
-case class LogRegStats(nMissing: Int, beta: Double, se: Double, t: Double, p: Double) {
-  def toAnnotation: Annotation = Annotation(nMissing, beta, se, t, p)
+case class LogRegStats(nMissing: Int, beta: Double, se: Double, t: Double, p: Double, nIter: Int, converged: Boolean, exploded: Boolean) {
+  def toAnnotation: Annotation = Annotation(nMissing, beta, se, t, p, nIter, converged, exploded)
 }
 
 object LogisticRegression {
@@ -61,8 +63,8 @@ object LogisticRegression {
       .map{ case (v, a, gs) =>
         val (nCalled, gtSum) = gs.flatMap(_.gt).foldRight((0,0))((gt, acc) => (acc._1 + 1, acc._2 + gt))
 
-        println(v)
-        println(gs.flatMap(_.gt))
+//        println(v)
+//        println(gs.flatMap(_.gt))
 
         val logregstatsOpt =  // FIXME: improve this catch
           if (gtSum == 0 || gtSum == 2 * nCalled || (gtSum == nCalled && gs.flatMap(_.gt).forall(_ == 1)) || nCalled == 0)
@@ -79,7 +81,7 @@ object LogisticRegression {
 
             if (fit.converged) {
               val waldStat = fit.waldTest()
-              Some(LogRegStats(n - nCalled, waldStat.b(0), waldStat.se(0), waldStat.z(0), waldStat.p(0)))
+              Some(LogRegStats(n - nCalled, waldStat.b(0), waldStat.se(0), waldStat.z(0), waldStat.p(0), fit.nIter, fit.converged, fit.exploded))
             }
             else None
           }
