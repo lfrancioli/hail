@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>imputesex</title>
+    <style>
+        span.code, div.codeblock {
+            font-family: 'Courier New', Courier, 'Lucida Sans Typewriter', 'Lucida Typewriter', monospace;
+            background-color: #f2f2f2;
+        }
+
+        div.codeblock {
+            color: black;
+        }
+
+        span.code {
+            color: red;
+        }
+
+        table {
+        border-collapse: collapse;
+        }
+
+        table, th, td {
+        border: 1px solid black;
+        }
+
+        tr:nth-child(even) {background-color: #f2f2f2}
+    </style>
+</head>
+<body>
+<h1>Imputing Sex in Hail</h1>
+<p>Hail contains an <span class="code">imputesex</span> module which will calculate the inbreeding coefficient on the X chromosome as done in <a href="http://pngu.mgh.harvard.edu/~purcell/plink/summary.shtml#sexcheck">Plink v1.7</a>. All results are stored in sample annotations.</p>
+
+<h2>Command Line Options</h2>
+<table>
+    <tr><th>Flags</th><th>Description</th><th>Default</th></tr>
+    <tr><td><span class="code">-m Double</span> | <span class="code">--maf-threshold Double</span></td><td>Minimum variant minor allele frequency</td><td>0.0</td></tr>
+    <tr><td><span class="code">-i</span> | <span class="code">--include-par</span></td><td>Include variants in pseudo autosomal regions (HG19)</td><td>false</td></tr>
+    <tr><td><span class="code">-x Double</span> | <span class="code">--female-threshold Double</span></td><td>If the inbreeding coefficient is less than <span class="code">Double</span>, then sample is called as Female</td><td>0.2</td></tr>
+    <tr><td><span class="code">-y Double</span> | <span class="code">--male-threshold Double</span></td><td>If the inbreeding coefficient is greater than <span class="code">Double</span>, then sample is called as Male</td><td>0.8</td></tr>
+    <tr><td><span class="code">-p Expression</span> | <span class="code">--pop-freq Expression</span></td><td>Population minor allele frequency (variant annotation expression, e.g. <span class="code">va.exac.AF</span>)</td><td></td></tr>
+</table>
+
+<h2>Example <span class="code">imputesex</span> Command</h2>
+<div class="codeblock">
+    hail read -i /path/to/file.vds imputesex -m 0.01 exportsamples -o /path/to/output.tsv -c "ID=s.id, Fstat=sa.imputesex.Fstat, ImputedSex=sa.imputesex.isFemale"
+</div>
+<p>To get the exact same answer as PLINK, make sure you split multi-allelic variants and use the flag <span class="code">--include-par</span>:</p>
+<div class="codeblock">
+    hail read -i /path/to/file.vds splitmulti imputesex --include-par
+</div>
+
+
+<h2>Implementation Details</h2>
+<ol type="1">
+    <li>X chromosome variants are selected from the VDS: <span class="code">v.contig == "X" || v.contig == "23"</span></li>
+    <li>Variants with a minor allele frequency less than the threshold given by <span class="code">--mafthreshold</span> are removed</li>
+    <li>Variants in the pseudoautosomal region <span class="code">(X:60001-2699520) || (X:154931044-155260560)</span> are included if the <span class="code">--include-par</span> flag is set</li>
+    <li>The minor allele frequency (maf) per variant is calculated</li>For each variant and sample with a non-missing genotype call, <span class="code">E</span>,the expected number of homozygotes (from population MAF), is computed as <span class="code">1.0 - (2.0*maf*(1.0-maf))</span></li>
+    <li>For each variant and sample with a non-missing genotype call, <span class="code">O</span>, the observed number of homozygotes, is computed as <span class="code">0 = heterozygote; 1 = homozygote</span></li>
+    <li>For each variant and sample with a non-missing genotype call, <span class="code">N</span> is incremented by 1</li>
+    <li>For each sample, <span class="code">E</span>, <span class="code">O</span>, and <span class="code">N</span> are combined across variants</li>
+    <li><span class="code">F</span> is calculated by <span class="code">(O - E) / (N - E)</span></li>
+    <li>A sex is assigned to each sample with the following criteria: <span class="code">F < 0.2 => Female; F > 0.8 => Male</span>. Use <span class="code">--female-threshold</span> and <span class="code">--male-threshold</span> to change this behavior.</li>
+</ol>
+
+
+<h2>Available Sample Annotations</h2>
+<table>
+    <tr>
+        <th>Identifier</th>
+        <th>Type</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td><span class="code">isFemale</span></td>
+        <td><span class="code">Boolean</span></td>
+        <td>True if the imputed sex is female, false if male, missing if undetermined</td>
+    </tr>
+    <tr>
+        <td><span class="code">Fstat</span></td>
+        <td><span class="code">Double</span></td>
+        <td>Inbreeding coefficient</td>
+    </tr>
+    <tr>
+        <td><span class="code">nTotal</span></td>
+        <td><span class="code">Int</span></td>
+        <td>Total number of variants considered</td>
+    </tr>
+    <tr>
+        <td><span class="code">nCalled</span></td>
+        <td><span class="code">Int</span></td>
+        <td>Number of variants with a genotype call</td>
+    </tr>
+    <tr>
+        <td><span class="code">expectedHoms</span></td>
+        <td><span class="code">Double</span></td>
+        <td>Expected number of homozygotes</td>
+    </tr>
+    <tr>
+        <td><span class="code">observedHoms</span></td>
+        <td><span class="code">Double</span></td>
+        <td>Observed number of homozygotes</td>
+    </tr>
+</table>
+</body>
+</html>
