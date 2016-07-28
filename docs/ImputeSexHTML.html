@@ -4,17 +4,108 @@
     <meta charset="UTF-8">
     <title>imputesex</title>
     <style>
-        span.code, div.codeblock {
+        @font-face {
+        font-family: Source Code Pro;
+        font-weight: 500;
+        src: url(/fonts/sourcecodepro/SourceCodePro-Medium.otf.woff)
+        }
+
+        @font-face {
+        font-family: Source Code Pro;
+        font-weight: 600;
+        src: url(/fonts/sourcecodepro/SourceCodePro-Semibold.otf.woff)
+        }
+
+        body {
+            font-family: Source Code Pro ,Palatino, "Palatino Linotype", "Book Antiqua", "Hoefler Text", Georgia, "Lucida Bright", Cambria, Times, "Times New Roman", serif;
+            background: #fff;
+            color: #0C3C26;
+            line-height: 1.6;
+        }
+
+        .section .method .method-area .method-copy {
+            padding: 0px;
+            margin: 0px;
+        }
+
+        .method-copy-padding .method-subcat {
+            padding: 10px 10px 10px 30px;
+        }
+
+        h1 {
             font-family: 'Courier New', Courier, 'Lucida Sans Typewriter', 'Lucida Typewriter', monospace;
-            background-color: #f2f2f2;
+            color: #005b96;
+            margin: 0px;
+        }
+
+        h3 {
+        font-family: Source Code Pro, Arial, Helvetica, sans-serif;
+        color: #939DA3;
+        text-transform: uppercase;
+        border-bottom: 1px solid #f0f4f7;
+        }
+
+        .method-list-item {
+            list-style-type: none;
+            line-height: 13px;
+            padding-left: 20px;
+            border-bottom: 1px solid #f0f4f7;
+        }
+
+        .method-list-item-label, .method-list-item-default, .method-list-item-type {
+            font-size: 13px;
+        }
+
+        .method-list-item-description {
+        color: #939da3;
+        font-weight: 400;
+        text-transform: none;
+        word-break: normal;
+        font-size: 13px;
+
+        }
+
+        .method-list-item-badge {
+        display: inline-block;
+        margin-left: 20px;
+        padding-left: 0 8px;
+        vertical-align: top;
+        border: 1px solid rgba(255, 174, 84, .5);
+        border-radius: 11px;
+        color: #ffae54;
+        font-weight: 600;
+        text-transform: uppercase
+        }
+
+        code {
+            font-family: monospace;
+        }
+
+        .code-block {
+            background: #fafcfc;
+            font-family: monospace;
+            border-radius: 5px;
+            border: 1px solid #f0f4f7;
+            padding: 10px 20px 10px 20px;
+        }
+
+        .method {
+            padding: 1em;
+            border-top: 1px solid #f0f4f7;
+        }
+
+
+        span.code, div.codeblock {
+        font-family: 'Courier New', Courier, 'Lucida Sans Typewriter', 'Lucida Typewriter', monospace;
+        background-color: #f2f2f2;
         }
 
         div.codeblock {
-            color: black;
+        color: black;
         }
 
         span.code {
-            color: red;
+        color: red;
         }
 
         table {
@@ -25,84 +116,153 @@
         border: 1px solid black;
         }
 
-        tr:nth-child(even) {background-color: #f2f2f2}
+        tr:nth-child(even) {
+        background-color: #b3cde0
+        }
+
+        .method-list-input-type {
+            color: #939da3;
+            padding-left: 30px;
+        }
+
+        .method-list-input-default {
+            color: blue;
+            padding-left: 30px;
+        }
+
+        .method-list-group {
+            margin: 0px;
+            padding: 0px;
+            line-height: 0px;
+        }
     </style>
 </head>
 <body>
-<h1>Imputing Sex in Hail</h1>
-<p>Hail contains an <span class="code">imputesex</span> module which will calculate the inbreeding coefficient on the X chromosome as done in <a href="http://pngu.mgh.harvard.edu/~purcell/plink/summary.shtml#sexcheck">Plink v1.7</a>. All results are stored in sample annotations.</p>
+<section class="method first-of-group" id="imputesex">
+    <div class="method-area">
+        <div class="method-copy">
+            <div class="method-copy-padding">
+                <h1>imputesex</h1>
+                <p>Imputes the sex of samples by calculating the inbreeding coefficient on the X chromosome as done in <a href="http://pngu.mgh.harvard.edu/~purcell/plink/summary.shtml#sexcheck">PLINK v1.7</a>.</p>
 
-<h2>Command Line Options</h2>
-<table>
-    <tr><th>Flags</th><th>Description</th><th>Default</th></tr>
-    <tr><td><span class="code">-m Double</span> | <span class="code">--maf-threshold Double</span></td><td>Minimum variant minor allele frequency</td><td>0.0</td></tr>
-    <tr><td><span class="code">-i</span> | <span class="code">--include-par</span></td><td>Include variants in pseudo autosomal regions (HG19)</td><td>false</td></tr>
-    <tr><td><span class="code">-x Double</span> | <span class="code">--female-threshold Double</span></td><td>If the inbreeding coefficient is less than <span class="code">Double</span>, then sample is called as Female</td><td>0.2</td></tr>
-    <tr><td><span class="code">-y Double</span> | <span class="code">--male-threshold Double</span></td><td>If the inbreeding coefficient is greater than <span class="code">Double</span>, then sample is called as Male</td><td>0.8</td></tr>
-    <tr><td><span class="code">-p Expression</span> | <span class="code">--pop-freq Expression</span></td><td>Population minor allele frequency (variant annotation expression, e.g. <span class="code">va.exac.AF</span>)</td><td></td></tr>
-</table>
+            </div>
+                <div class="method-subcat" id="usage">
+                    <h3 class="method-list-title">Usage</h3>
+                    <div class="code-block">
+                        hail read -i /path/to/file.vds imputesex -m 0.01 exportsamples -o /path/to/output.tsv -c "ID=s.id, Fstat=sa.imputesex.Fstat, ImputedSex=sa.imputesex.isFemale"
+                    </div>
+                </div>
 
-<h2>Example <span class="code">imputesex</span> Command</h2>
-<div class="codeblock">
-    hail read -i /path/to/file.vds imputesex -m 0.01 exportsamples -o /path/to/output.tsv -c "ID=s.id, Fstat=sa.imputesex.Fstat, ImputedSex=sa.imputesex.isFemale"
-</div>
-<p>To get the exact same answer as PLINK, make sure you split multi-allelic variants and use the flag <span class="code">--include-par</span>:</p>
-<div class="codeblock">
-    hail read -i /path/to/file.vds splitmulti imputesex --include-par
-</div>
+                <div class="method-subcat" id="arguments">
+                    <h3 class="method-list-title">Arguments</h3>
+                    <ul class="method-list-group">
+                        <li class="method-list-item">
+                            <p class="method-list-item-label"><code>-m</code> | <code>--maf-threshold</code>
+                                <span class="method-list-input-type">double</span>
+                                <span class="method-list-input-default">default=0.0</span>
+                                <span class="method-list-item-badge">required</span>
+                            </p>
+                            <p class="method-list-item-description">Minimum variant minor allele frequency</p>
+                        </li>
 
+                        <li class="method-list-item">
+                            <p class="method-list-item-label"><code>-i</code> | <code>--include-par</code>
+                                <span class="method-list-input-default">default=false</span>
+                                <span class="method-list-item-badge">required</span>
+                            </p>
+                            <p class="method-list-item-description">Include variants in pseudo autosomal regions (HG19)</p>
+                        </li>
 
-<h2>Implementation Details</h2>
-<ol type="1">
-    <li>X chromosome variants are selected from the VDS: <span class="code">v.contig == "X" || v.contig == "23"</span></li>
-    <li>Variants with a minor allele frequency less than the threshold given by <span class="code">--mafthreshold</span> are removed</li>
-    <li>Variants in the pseudoautosomal region <span class="code">(X:60001-2699520) || (X:154931044-155260560)</span> are included if the <span class="code">--include-par</span> flag is set</li>
-    <li>The minor allele frequency (maf) per variant is calculated</li>For each variant and sample with a non-missing genotype call, <span class="code">E</span>,the expected number of homozygotes (from population MAF), is computed as <span class="code">1.0 - (2.0*maf*(1.0-maf))</span></li>
-    <li>For each variant and sample with a non-missing genotype call, <span class="code">O</span>, the observed number of homozygotes, is computed as <span class="code">0 = heterozygote; 1 = homozygote</span></li>
-    <li>For each variant and sample with a non-missing genotype call, <span class="code">N</span> is incremented by 1</li>
-    <li>For each sample, <span class="code">E</span>, <span class="code">O</span>, and <span class="code">N</span> are combined across variants</li>
-    <li><span class="code">F</span> is calculated by <span class="code">(O - E) / (N - E)</span></li>
-    <li>A sex is assigned to each sample with the following criteria: <span class="code">F < 0.2 => Female; F > 0.8 => Male</span>. Use <span class="code">--female-threshold</span> and <span class="code">--male-threshold</span> to change this behavior.</li>
-</ol>
+                        <li class="method-list-item">
+                            <p class="method-list-item-label"><code>-x</code> | <code>--female-threshold</code>
+                                <span class="method-list-input-type">double</span>
+                                <span class="method-list-input-default">default=0.2</span>
+                                <span class="method-list-item-badge">required</span>
+                            </p>
+                            <p class="method-list-item-description">If the inbreeding coefficient is less than <code>Double</code>, then sample is called as Female</p>
+                        </li>
 
+                        <li class="method-list-item">
+                            <p class="method-list-item-label"><code>-y</code> | <code>--male-threshold</code>
+                                <span class="method-list-input-type">double</span>
+                                <span class="method-list-input-default">default=0.8</span>
+                                <span class="method-list-item-badge">required</span>
+                            </p>
+                            <p class="method-list-item-description">If the inbreeding coefficient is greater than <code>Double</code>, then sample is called as Male</p>
+                        </li>
 
-<h2>Available Sample Annotations</h2>
-<table>
-    <tr>
-        <th>Identifier</th>
-        <th>Type</th>
-        <th>Description</th>
-    </tr>
-    <tr>
-        <td><span class="code">isFemale</span></td>
-        <td><span class="code">Boolean</span></td>
-        <td>True if the imputed sex is female, false if male, missing if undetermined</td>
-    </tr>
-    <tr>
-        <td><span class="code">Fstat</span></td>
-        <td><span class="code">Double</span></td>
-        <td>Inbreeding coefficient</td>
-    </tr>
-    <tr>
-        <td><span class="code">nTotal</span></td>
-        <td><span class="code">Int</span></td>
-        <td>Total number of variants considered</td>
-    </tr>
-    <tr>
-        <td><span class="code">nCalled</span></td>
-        <td><span class="code">Int</span></td>
-        <td>Number of variants with a genotype call</td>
-    </tr>
-    <tr>
-        <td><span class="code">expectedHoms</span></td>
-        <td><span class="code">Double</span></td>
-        <td>Expected number of homozygotes</td>
-    </tr>
-    <tr>
-        <td><span class="code">observedHoms</span></td>
-        <td><span class="code">Double</span></td>
-        <td>Observed number of homozygotes</td>
-    </tr>
-</table>
+                        <li class="method-list-item">
+                            <p class="method-list-item-label"><code>-p</code> | <code>--pop-freq</code>
+                                <span class="method-list-input-type">expression</span>
+                            </p>
+                            <p class="method-list-item-description">Population minor allele frequency (variant annotation expression, e.g. <code>va.exac.AF</code>)</p>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="method-subcat" id="outputs">
+                    <h3 class="method-list-title">Outputs</h3>
+                    <table>
+                        <tr>
+                            <th>Identifier</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                        </tr>
+                        <tr>
+                            <td><code>isFemale</code></td>
+                            <td><code>Boolean</code></td>
+                            <td>True if the imputed sex is female, false if male, missing if undetermined</td>
+                        </tr>
+                        <tr>
+                            <td><code>Fstat</code></td>
+                            <td><code>Double</code></td>
+                            <td>Inbreeding coefficient</td>
+                        </tr>
+                        <tr>
+                            <td><code>nTotal</code></td>
+                            <td><code>Int</code></td>
+                            <td>Total number of variants considered</td>
+                        </tr>
+                        <tr>
+                            <td><code>nCalled</code></td>
+                            <td><code>Int</code></td>
+                            <td>Number of variants with a genotype call</td>
+                        </tr>
+                        <tr>
+                            <td><code>expectedHoms</code></td>
+                            <td><code>Double</code></td>
+                            <td>Expected number of homozygotes</td>
+                        </tr>
+                        <tr>
+                            <td><code>observedHoms</code></td>
+                            <td><code>Double</code></td>
+                            <td>Observed number of homozygotes</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class="method-subcat" id="notes">
+                    <h3 class="method-list-title">Notes</h3>
+                    <ol type="1">
+                        <li>X chromosome variants are selected from the VDS: <code>v.contig == "X" || v.contig == "23"</code></li>
+                        <li>Variants with a minor allele frequency less than the threshold given by <code>--mafthreshold</code> are removed</li>
+                        <li>Variants in the pseudoautosomal region <code>(X:60001-2699520) || (X:154931044-155260560)</code> are included if the <code>--include-par</code> flag is set</li>
+                        <li>The minor allele frequency (maf) per variant is calculated</li>For each variant and sample with a non-missing genotype call, <code>E</code>,the expected number of homozygotes (from population MAF), is computed as <code>1.0 - (2.0*maf*(1.0-maf))</code></li>
+                        <li>For each variant and sample with a non-missing genotype call, <code>O</code>, the observed number of homozygotes, is computed as <code>0 = heterozygote; 1 = homozygote</code></li>
+                        <li>For each variant and sample with a non-missing genotype call, <code>N</code> is incremented by 1</li>
+                        <li>For each sample, <code>E</code>, <code>O</code>, and <code>N</code> are combined across variants</li>
+                        <li><code>F</code> is calculated by <code>(O - E) / (N - E)</code></li>
+                        <li>A sex is assigned to each sample with the following criteria: <code>F < 0.2 => Female; F > 0.8 => Male</code>. Use <code>--female-threshold</code> and <code>--male-threshold</code> to change this behavior.</li>
+                    </ol>
+
+                    <p>To get the exact same answer as PLINK, make sure you split multi-allelic variants and use the flag <code>--include-par</code>:</p>
+                    <div class="code-block">
+                        hail read -i /path/to/file.vds splitmulti imputesex --include-par
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 </body>
 </html>
