@@ -97,6 +97,7 @@ object ToplevelCommands {
   register(SplitMulti)
   register(PCA)
   register(Persist)
+  register(RandomForests)
   register(Put)
   register(Read)
   register(ReadKudu)
