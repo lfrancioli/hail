@@ -11,18 +11,17 @@ import scala.math.Numeric.Implicits._
 
 object Contig {
   def compare(lhs: String, rhs: String): Int = {
-    if (lhs.forall(_.isDigit)) {
-      if (rhs.forall(_.isDigit)) {
-        lhs.toInt.compare(rhs.toInt)
-      } else
-        -1
-    } else {
-      if (rhs.forall(_.isDigit))
-        1
-      else
-        lhs.compare(rhs)
-    }
+    contigToInt(lhs).compare(contigToInt(rhs))
   }
+
+  def contigToInt(contig: String) : Int = {
+    if(contig.forall(_.isDigit)) contig.toInt
+    else if(contig == "X") 23
+    else if(contig == "Y") 24
+    else if(contig == "MT") 25
+    else contig.hashCode + 26
+  }
+
 }
 
 object AltAlleleType extends Enumeration {
