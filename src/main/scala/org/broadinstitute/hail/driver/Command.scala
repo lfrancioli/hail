@@ -45,6 +45,7 @@ object ToplevelCommands {
   }
 
   register(AggregateIntervals)
+  register(AggregateSamplesByVA)
   register(AnnotateSamples)
   register(AnnotateVariants)
   register(AnnotateGlobal)
