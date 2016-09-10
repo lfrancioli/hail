@@ -80,10 +80,6 @@ object AggregateSamplesByVA extends Command {
     if(asMatrix && header.length > 1)
       fatal("Only a single condition can be evaluated when using --as-matrix.")
 
-    //val (zVals, seqOp, combOp, resultOp) = Aggregators.makeFunctions(aggregationEC)
-
-    //  val zvf: () => Array[Any] = () => zVals.indices.map(zVals).toArray
-
     val aggregators = aggregationEC.aggregationFunctions.toArray
     val aggregatorA = aggregationEC.a
 
@@ -135,14 +131,33 @@ object AggregateSamplesByVA extends Command {
 
     new RichRDD(res.map({
       case (ann, values) =>
+
+        val sb = new StringBuilder()
+
+        val lines = for (((s, sa),i) <- localSamplesBc.value.zip(localAnnotationsBc.value).zipWithIndex) yield {
+          sb.clear()
+
+          if(!asMatrix)
+            sb.append(s + "\t")
+
+          ec.setAll(s, sa)
+
+          for (j <- 0 until nAggregations) {
+            aggregatorA(aggregators(j).idx) = values(i, j)
+          }
+
+          var first = true
+          parseResults.foreachBetween { case (t, f) =>
+            sb.append(f().map(TableAnnotationImpex.exportAnnotation(_, t)).getOrElse("NA"))
+          } { sb += '\t' }
+          sb.result()
+        }
+
         val annStr = ann.asInstanceOf[Option[Annotation]].getOrElse("NA").toString
         if (asMatrix) {
-          annStr + values.rows.map(row => row(0)).mkString("\t")
+          annStr + "\t" + lines.mkString("\t")
         } else {
-          values.rows.zipWithIndex.map({
-            case (row, i) => s"$annStr\t${ localSamplesBc.value(i) }\t" +
-              row.map(el => el.toString).mkString("\t")
-          }).mkString("\n")
+          lines.map(annStr + "\t" + _).mkString("\n")
         }
     }))
       .writeTable(options.output,
