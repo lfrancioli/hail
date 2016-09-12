@@ -431,7 +431,7 @@ object SingletonLDinTrios extends Command {
     val samplesInTrios = ped.value.completeTrios.foldLeft(Set[String]())({case (acc,trio) => acc ++ Set(trio.mom,trio.dad,trio.kid)})
 
     //Filter variants to keep autosomes only and samples to keep only complete trios
-    var trioVDS = state.vds.filterVariants(autosomeFilter).filterSamples((s: String, sa: Annotation) => samplesInTrios.contains(s))
+    val trioVDS = state.vds.filterVariants(autosomeFilter).filterSamples((s: String, sa: Annotation) => samplesInTrios.contains(s))
 
     val partitioner = new HashPartitioner(options.number_partitions)
 
@@ -440,7 +440,7 @@ object SingletonLDinTrios extends Command {
     val sampleAnnotations = if(!options.saStrat.isEmpty()) options.saStrat.split(",") else Array[String]()
 
     //Keep only relevant SA and VA
-    val (newVAS, vaDeleter) = state.vds.vaSignature.asInstanceOf[TStruct].filter(variantAnnotations.toSet + options.gene_annotation)
+    /**val (newVAS, vaDeleter) = state.vds.vaSignature.asInstanceOf[TStruct].filter(variantAnnotations.toSet + options.gene_annotation)
     trioVDS = if(trioVDS.saSignature.isInstanceOf[TStruct] && !variantAnnotations.isEmpty){
       val (newSAS, saDeleter) = state.vds.saSignature.asInstanceOf[TStruct].filter(variantAnnotations.toSet)
       trioVDS.copy(saSignature = newSAS,
@@ -448,7 +448,7 @@ object SingletonLDinTrios extends Command {
         vaSignature = newVAS).mapAnnotations({case(v,va,gs) => vaDeleter(va)})
     } else {
       trioVDS.copy(vaSignature = newVAS).mapAnnotations({case(v,va,gs) => vaDeleter(va)})
-    }
+    }**/
 
     val triosRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(trioVDS,state.sc , partitioner)(
       {case (v,va) => triosGeneAnn(va).get.toString}
@@ -481,8 +481,8 @@ object SingletonLDinTrios extends Command {
     //Only keep variants that are of interest and have a gene annotation (although they should match those of trios!)
     def variantsOfInterestFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => exacGeneAnn(va).isDefined && bcUniqueVariants.value.contains(v.toString)}
 
-    val (exACnewVAS, exACvaDeleter) = exacVDS.vaSignature.asInstanceOf[TStruct].filter(Set(options.gene_annotation))
-    val filteredExAC = if(exacVDS.saSignature.isInstanceOf[TStruct]){
+    //val (exACnewVAS, exACvaDeleter) = exacVDS.vaSignature.asInstanceOf[TStruct].filter(Set(options.gene_annotation))
+    /**val filteredExAC = if(exacVDS.saSignature.isInstanceOf[TStruct]){
       val (exACnewSAS, saDeleter) = exacVDS.saSignature.asInstanceOf[TStruct].filter(Set.empty[String])
       exacVDS.copy(saSignature = exACnewSAS,
         sampleAnnotations = exacVDS.sampleAnnotations.map(a => saDeleter(a)),
@@ -495,7 +495,11 @@ object SingletonLDinTrios extends Command {
         .mapAnnotations({case(v,va,gs) => vaDeleter(va)})
         .filterVariants(variantsOfInterestFilter)
         .filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s))
-    }
+    }**/
+
+    val filteredExAC = exacVDS
+      .filterVariants(variantsOfInterestFilter)
+      .filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s))
 
     val exacRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(filteredExAC, state.sc, partitioner)(
       {case (v,va) => exacGeneAnn(va).get.toString}
