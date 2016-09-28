@@ -102,6 +102,7 @@ object ToplevelCommands {
   register(ReadKudu)
   register(RenameSamples)
   register(Coalesce)
+  register(Readviz)
   register(SampleQC)
   register(SeqrServerCommand)
   register(TDTCommand)
