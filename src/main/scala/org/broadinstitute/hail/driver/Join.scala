@@ -1,15 +1,13 @@
 package org.broadinstitute.hail.driver
 
-import org.broadinstitute.hail.Utils._
+import org.broadinstitute.hail.utils._
 import org.broadinstitute.hail.annotations._
 import org.broadinstitute.hail.expr.{EvalContext, Field, Parser, TAggregable, TBoolean, TGenotype, TSample, TStruct, TVariant, Type}
 import org.broadinstitute.hail.methods.{Aggregators, Filter}
 import org.broadinstitute.hail.variant.{Genotype, Variant, VariantDataset, VariantSampleMatrix}
 import org.kohsuke.args4j.{Option => Args4jOption}
 
-/**
-  * Created by laurent on 6/27/16.
-  */
+
 object Join extends Command {
 
   class Options extends BaseOptions {
@@ -86,11 +84,12 @@ object Join extends Command {
     val sa2 = mergeSA(otherVDS.saSignature.asInstanceOf[TStruct],vds.saSignature.asInstanceOf[TStruct],otherVDS.sampleAnnotations)
 
     val newRDD = vds.rdd.join(
-      otherVDS.rdd).map({
-      case((v,((va1,gt1),(va2,gt2)))) =>
-        (v, (vaInserter(va1, Some(va2)), gt1 ++ gt2))
+      otherVDS.rdd).mapValues({
+      case((va1,gt1),(va2,gt2)) =>
+        (vaInserter(va1, Some(va2)), gt1 ++ gt2)
     }
-    )
+    ).toOrderedRDD(vds.rdd.orderedPartitioner)
+
 
     state.copy(vds = vds.copy(
       rdd = newRDD,
