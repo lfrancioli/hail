@@ -97,19 +97,15 @@ The following table describes the variables in the scope of `ANNO_EXPR`
 
 ### Example
 
-The following command removes alternate alleles whose allele count is zero and updates the alternate allele count annotation with the new indices.
+The following command filters a list of samples, recompute ACs for each allele, and then removes alternate alleles whose allele count is zero and updates the alternate allele count annotation with the new indices.
 
 ```
 ... \
-  filtersamples list --subset --remove -i samples_to_exclude.txt \
-  filteralleles --remove \
-    -c 'va.info.AC[aIndex - 1] == 0' \
-    -a 'va.info.AC = va.info.AC = aIndices[1:].map(i => va.info.AC[i - 1]),
-      va.info.AF = aIndices[1:].map(i => va.info.AF[i - 1]),
-      va.info.MLEAC = aIndices[1:].map(i => va.info.MLEAC[i - 1]),
-      va.info.MLEAF = aIndices[1:].map(i => va.info.MLEAF[i - 1])'
+  filtersamples list --remove -i samples_to_exclude.txt \
+  annotatevariants expr -c 'va.AC = gs.map(g => g.oneHotAlleles(v)).sum().map(x => x.toInt), va.info.AN = 2*gs.filter(g => g.isCalled).count().toInt' \
+  filteralleles --subset --remove -c 'aIndex > 0 && va.AC[aIndex] == 0' -a 'va.info.AC = aIndices[1:].map(i => va.AC[i])' \
+  annotatevariants expr -c 'va.info.AF = va.info.AC / va.info.AN' \
 ```
-
-Note that we must skip the first element of `aIndices` because it is mapping between the old and new *allele* indices, not the *alternate allele* indices.
+Note that here, we must first compute the updated ACs after removing the individuals since aggregators cannot be used within the `-a` expression. When computing the updated ACs here, the AC for the reference allele is also computed. Because the AC values computed include the reference, `aIndices` correspond to the correct alleles.
 
 </div>
