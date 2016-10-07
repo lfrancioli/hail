@@ -47,9 +47,12 @@ object Join extends Command {
   def run(state: State, options: Options): State = {
 
     def getSplitVDSs(vds: VariantDataset, otherVDS: VariantDataset) : (VariantDataset,VariantDataset) = {
-      if(vds.wasSplit == otherVDS.wasSplit) (vds, otherVDS)
-      else if(vds.wasSplit && !otherVDS.wasSplit) (vds, SplitMulti.run(state.copy(state.sc,state.sqlContext,otherVDS)).vds)
-      else fatal("Cannot join a multi-allelic VDS with a VDS where multi-allelic sites were split. Please run splitmulti before joining.")
+      if (vds.wasSplit == otherVDS.wasSplit)
+        (vds, otherVDS)
+      else if (vds.wasSplit && !otherVDS.wasSplit)
+        (vds, SplitMulti.run(state.copy(state.sc, state.sqlContext, otherVDS)).vds)
+      else
+        fatal("Cannot join a multi-allelic VDS with a VDS where multi-allelic sites were split. Please run splitmulti before joining.")
     }
 
     val (vds,otherVDS) = getSplitVDSs(state.vds, VariantSampleMatrix.read(state.sqlContext, options.input))
@@ -102,7 +105,7 @@ object Join extends Command {
       case((va1,gt1),(va2,gt2)) =>
         (vaInserter(va1, Some(va2)), gt1 ++ gt2)
     }
-    ).toOrderedRDD(vds.rdd.orderedPartitioner)
+    ).toOrderedRDD(vds.rdd.keys)
 
 
     state.copy(vds = vds.copy(
