@@ -21,6 +21,9 @@ object Join extends Command {
     @Args4jOption(required = true, name = "--ga_root",
       usage = "Period-delimited path starting with `ga'")
     var gr: String = _
+    @Args4jOption(required = false, name = "--drop-sa",
+      usage = "Removes SA")
+    var dropSA: Boolean = false
     @Args4jOption(required = false, name = "--sa_root",
       usage = "Period-delimited path starting with `sa'")
     var sr: String = "sa"
@@ -80,8 +83,19 @@ object Join extends Command {
     }
     val newSamplesIDs = vds.sampleIds ++ otherVDS.sampleIds.map(s => getNewSampleName(s,options.suffix))
 
-    val sa1 = mergeSA(vds.saSignature.asInstanceOf[TStruct],otherVDS.saSignature.asInstanceOf[TStruct],vds.sampleAnnotations)
-    val sa2 = mergeSA(otherVDS.saSignature.asInstanceOf[TStruct],vds.saSignature.asInstanceOf[TStruct],otherVDS.sampleAnnotations)
+    def getNewSA(): (Type, IndexedSeq[Annotation]) = {
+      if(options.dropSA){
+        (TStruct.empty, Array.fill(vds.sampleAnnotations.length + otherVDS.sampleAnnotations.length)(Annotation.empty))
+      } else {
+        //TODO FIXME This doesn't work
+        val sa1 = mergeSA(vds.saSignature.asInstanceOf[TStruct], otherVDS.saSignature.asInstanceOf[TStruct], vds.sampleAnnotations)
+        val sa2 = mergeSA(otherVDS.saSignature.asInstanceOf[TStruct], vds.saSignature.asInstanceOf[TStruct], otherVDS.sampleAnnotations)
+        (sa1._1, sa1._2 ++ sa2._2)
+      }
+    }
+
+    val (newSaSignature, newSA) = getNewSA()
+
 
     val newRDD = vds.rdd.join(
       otherVDS.rdd).mapValues({
@@ -94,10 +108,10 @@ object Join extends Command {
     state.copy(vds = vds.copy(
       rdd = newRDD,
       vaSignature = newVASignature,
-      saSignature = sa1._1,
+      saSignature = newSaSignature,
       globalSignature = newGASignature,
       sampleIds = newSamplesIDs,
-      sampleAnnotations = sa1._2 ++ sa2._2,
+      sampleAnnotations = newSA,
       globalAnnotation = gaInserter(state.vds.globalAnnotation,Some(otherVDS.globalAnnotation))
     ))
   }
