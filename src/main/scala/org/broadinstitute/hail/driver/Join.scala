@@ -100,12 +100,12 @@ object Join extends Command {
     val (newSaSignature, newSA) = getNewSA()
 
 
-    val newRDD = vds.rdd.join(
+    val newRDD = vds.rdd.orderedInnerJoinDistinct(
       otherVDS.rdd).mapValues({
       case((va1,gt1),(va2,gt2)) =>
         (vaInserter(va1, Some(va2)), gt1 ++ gt2)
     }
-    ).toOrderedRDD(vds.rdd.keys)
+    ).asOrderedRDD
 
 
     state.copy(vds = vds.copy(
