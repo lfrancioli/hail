@@ -28,16 +28,16 @@ The below annotations can be accessed with `sa.qc.<identifier>`
  - `nHomVar:                 Int` -- Number of homozygous alternate variants
  - `nCalled:                 Int` -- Sum of `nHomRef` + `nHet` + `nHomVar`
  - `nNotCalled:              Int` -- Number of uncalled variants
- - `nSNP:                    Int` -- Number of SNP variants
- - `nInsertion:              Int` -- Number of insertion variants
- - `nDeletion:               Int` -- Number of deletion variants
- - `nSingleton:              Int` -- Number of private variants
- - `nTransition:             Int` -- Number of transition (A-G, C-T) variants
- - `nTransversion:           Int` -- Number of transversion variants
+ - `nSNP:                    Int` -- Number of SNP alleles
+ - `nInsertion:              Int` -- Number of insertion alleles
+ - `nDeletion:               Int` -- Number of deletion alleles
+ - `nSingleton:              Int` -- Number of private alleles
+ - `nTransition:             Int` -- Number of transition (A-G, C-T) alleles
+ - `nTransversion:           Int` -- Number of transversion alleles
  - `nNonRef:                 Int` -- Number of Het + HomVar variants
  - `rTiTv:                Double` -- Transition/transversion ratio
  - `rHetHomVar:           Double` -- Het/HomVar ratio across all variants
- - `rInsertionDeletion:   Double` -- Insertion/Deletion ratio across all variants    
+ - `rInsertionDeletion:   Double` -- Insertion/Deletion ratio across all alleles    
  - `dpMean:               Double` -- Depth mean across all variants
  - `dpStDev:              Double` -- Depth standard deviation across all variants
  
