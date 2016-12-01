@@ -63,6 +63,10 @@ object RandomForests extends Command {
       usage = "outputs the model")
     var out: String = null
 
+    @Args4jOption(required = false, name = "--missing-label",
+      usage = "outputs the model")
+    var missingLabel: String = "NA"
+
   }
 
   def newOptions = new Options
@@ -76,6 +80,8 @@ object RandomForests extends Command {
   def requiresVDS = true
 
   def run(state: State, options: Options): State = {
+
+    val missingLabel = options.missingLabel
   
     val sqlContext = new org.apache.spark.sql.SQLContext(state.sc)
 
@@ -103,8 +109,8 @@ object RandomForests extends Command {
            ((training_querier._2(va), label_querier._2(va)) match {
              case (Some(t), Some(l)) =>
                if (t.asInstanceOf[Boolean]) Array(true, l.toString)
-               else Array(false, "nolabel")
-             case _ => (Array(false, "nolabel"))
+               else Array(false, missingLabel)
+             case _ => (Array(false, missingLabel))
            })
            ++ feature_queriers.map({
            case (f, t, q) => q(va) match {
