@@ -904,6 +904,18 @@ class VariantDataset(object):
 
         pargs = ['renamesamples', '-i', input]
         return self.hc.run_command(self, pargs)
+    
+    def random_forests(self, training, label, features, root, num_trees=200, max_depth=10, perc_training=0.8):
+        """Random forests
+        
+        TODO: Document
+        """
+        if isinstance(features, list):
+            features = ','.join(features)
+        pargs = ['randomForests', '-r', root, '--training', training, '--label', label,
+                 '--features', features, '--numTrees', str(num_trees),
+                 '--maxDepth', str(max_depth), '--percTraining', str(perc_training)]
+        return self.hc.run_command(self, pargs)
 
     def repartition(self, npartition, shuffle=True):
         """Increase or decrease the dataset sharding.  Can improve performance
