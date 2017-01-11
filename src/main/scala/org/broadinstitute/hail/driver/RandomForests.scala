@@ -3,7 +3,6 @@ package org.broadinstitute.hail.driver
 import org.apache.spark.ml.{Pipeline, PipelineStage}
 import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssembler, VectorIndexer}
-import org.apache.spark.ml.linalg.DenseVector
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
@@ -214,7 +213,7 @@ object RandomForests extends Command {
       .rdd.map({
       row => (Variant.fromRow(row),
         Row(row.getAs[String]("predictedLabel"),
-          labels.zip(row.getAs[org.apache.spark.ml.linalg.DenseVector]("probability").toArray.toIndexedSeq).toMap)
+          labels.zip(row.getAs[org.apache.spark.mllib.linalg.DenseVector]("probability").toArray.toIndexedSeq).toMap)
           .asInstanceOf[Annotation])
     }).toOrderedRDD[Locus]
 
