@@ -2587,7 +2587,7 @@ class VariantDataset(object):
         pargs = ['randomForests', '-r', root, '--training', training, '--label', label,
                                    '--features', features, '--numTrees', str(num_trees),
                                    '--maxDepth', str(max_depth), '--percTraining', str(perc_training)]
-        return self.hc.run_command(self, pargs)
+        return self.hc._run_command(self, pargs)
 
     def rename_samples(self, input):
         """Rename samples.
