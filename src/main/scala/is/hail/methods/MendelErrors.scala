@@ -58,8 +58,7 @@ object MendelErrors {
     }
   }
 
-  def apply(vds: VariantDataset, preTrios: IndexedSeq[CompleteTrio]): MendelErrors = {
-
+  def parseTrios(preTrios: IndexedSeq[CompleteTrio]) : (IndexedSeq[CompleteTrio], Map[String, List[(Int,Int)]]) = {
     val trios = preTrios.filter(_.sex.isDefined)
     val nSamplesDiscarded = preTrios.size - trios.size
 
@@ -73,6 +72,13 @@ object MendelErrors {
       sampleTrioRoles += (t.mom -> sampleTrioRoles.getOrElse(t.mom, List.empty[(Int, Int)]).::(ti, 2))
     }
 
+    (trios,sampleTrioRoles.toMap)
+  }
+
+  def apply(vds: VariantDataset, preTrios: IndexedSeq[CompleteTrio]): MendelErrors = {
+
+    val (trios, sampleTrioRoles) = parseTrios(preTrios)
+    
     val sc = vds.sparkContext
     val sampleTrioRolesBc = sc.broadcast(sampleTrioRoles)
     val triosBc = sc.broadcast(trios)
