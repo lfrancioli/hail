@@ -2240,6 +2240,11 @@ class VariantDataset(object):
         except Py4JJavaError as e:
             raise_py4j_exception(e)
 
+    def mendel_new(self, fam, code):
+
+        richvds = scala_package_object(self.hc._hail.variant).toRichVDS(self._jvds)
+        return VariantDataset(self.hc, richvds.mendelErrors(fam, code))
+
     def mendel_errors(self, output, fam):
         """Find Mendel errors; count per variant, individual and nuclear
         family.

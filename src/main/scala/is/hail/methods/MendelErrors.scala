@@ -40,6 +40,56 @@ case class MendelError(variant: Variant, trio: CompleteTrio, code: Int,
 
 object MendelErrors {
 
+  def getMendelErrors(v: Variant, gs: Iterable[Genotype], sampleIds: IndexedSeq[String],
+    ntrios: Int, trioRoles: Map[String, List[(Int, Int)]], sample_info: IndexedSeq[(String,Sex.Sex)]) : Iterable[(String, Int)] = {
+
+    val trio_genotypes : MultiArray2[Option[Genotype]] = MultiArray2.fill(ntrios,3)(None)
+    gs.zip(sampleIds).foreach({case (g,s) =>
+      trioRoles.get(s).foreach(l => l.foreach{ case (ti, ri) => trio_genotypes.update(ti,ri,Option(g))})
+    })
+
+    trio_genotypes.rows.flatMap{ case (row) => val code = getCodeMulti(row, v.copyState(sample_info(row.i)._2))
+      if (code != 0)
+        Some((sample_info(row.i)._1),code)
+      else
+        None
+    }
+
+  }
+
+  def getCodeMulti(gts: IndexedSeq[Option[Genotype]], copyState: CopyState ) : Int = {
+
+    (gts(0), gts(1), gts(2)) match{
+      case( Some(kid_gt), Some(dad_gt), Some(mom_gt)) =>
+        if((kid_gt.isHomRef && dad_gt.isHomRef && mom_gt.isHomRef) ||
+        kid_gt.isNotCalled || dad_gt.isNotCalled || mom_gt.isNotCalled)
+          0
+        else{
+          val kid_alleles = Genotype.gtPair(kid_gt.gt.get).alleleIndices
+          val dad_alleles = Genotype.gtPair(dad_gt.gt.get).alleleIndices.toSet
+          val mom_alleles = Genotype.gtPair(mom_gt.gt.get).alleleIndices.toSet
+
+          (dad_alleles.contains(kid_alleles(0)),
+            dad_alleles.contains(kid_alleles(1)),
+            mom_alleles.contains(kid_alleles(0)),
+            mom_alleles.contains(kid_alleles(1)),
+            copyState
+            ) match {
+            case (false, false, false, false, Auto) => 1 // No allelic match
+            case (false, false, _, _, Auto) => 1 // No matching allele from dad
+            case (_, _, false, false, Auto) => 2 // No matching allele from mom
+            case (false, true, false, true, Auto) => 3 // One allele not transmitted
+            case (true, false, true, false, Auto) => 3
+            case (_, _, false,false, HemiX) => 4 // No match for mom on X
+            case (false, false, _, _, HemiY) => 5 // No match for dad on Y
+            case _ => 0
+          }
+        }
+      case _ => 0
+    }
+
+  }
+
   def getCode(gts: IndexedSeq[GenotypeType], copyState: CopyState): Int = {
     (gts(1), gts(2), gts(0), copyState) match {  // (gtDad, gtMom, gtKid)
       case (HomRef, HomRef,    Het,  Auto) => 2  // Kid is Het

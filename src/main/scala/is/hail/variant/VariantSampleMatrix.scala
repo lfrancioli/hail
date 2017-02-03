@@ -20,7 +20,7 @@ import org.json4s.jackson.{JsonMethods, Serialization}
 import org.apache.kudu.spark.kudu.{KuduContext, _}
 import Variant.orderedKey
 import is.hail.keytable.KeyTable
-import is.hail.methods.{Aggregators, Filter}
+import is.hail.methods._
 import is.hail.utils
 
 import scala.collection.mutable
@@ -1303,4 +1303,34 @@ class RichVDS(vds: VariantDataset) {
 
     vds.filterVariants(p)
   }
+
+  def mendelErrors(fam: String, code: String =  "va.mendel") : VariantDataset = {
+
+
+    val sc = vds.sparkContext
+    val ped = Pedigree.read(fam, sc.hadoopConfiguration, vds.sampleIds)
+    val (trios, sampleTrioRoles) = MendelErrors.parseTrios(ped.completeTrios)
+    //val sampleTrioRolesBc = sc.broadcast(sampleTrioRoles)
+    val sample_trio_info = trios.map(x => (x.fam.get, x.sex.get))
+    //val sample_infoBc = sc.broadcast(sample_trio_info)
+    val (newVA, inserter) = vds.insertVA(TArray(TStruct(("fam",TString),("code",TInt))),
+      Parser.parseAnnotationRoot(code,Annotation.VARIANT_HEAD))
+    val rdd = vds.rdd
+    val sampleIds = vds.sampleIdsBc
+
+    val newRDD = rdd.mapValuesWithKey({ case (v, (va, gs)) =>
+      val me = MendelErrors.getMendelErrors(v,
+        gs,
+        sampleIds.value,
+        trios.length,
+        sampleTrioRoles,
+        sample_trio_info
+      )
+      val newVA = inserter(va, Some(me.map(x => Annotation(x._1,x._2))))
+      (newVA,gs)
+    }).asOrderedRDD
+
+    vds.copy(rdd = newRDD, vaSignature = newVA)
+  }
+
 }
