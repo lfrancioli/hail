@@ -62,17 +62,19 @@ object MendelErrors {
     (gts(0), gts(1), gts(2)) match{
       case( Some(kid_gt), Some(dad_gt), Some(mom_gt)) =>
         if((kid_gt.isHomRef && dad_gt.isHomRef && mom_gt.isHomRef) ||
-        kid_gt.isNotCalled || dad_gt.isNotCalled || mom_gt.isNotCalled)
+        kid_gt.isNotCalled || (dad_gt.isNotCalled && mom_gt.isNotCalled))
           0
         else{
           val kid_alleles = Genotype.gtPair(kid_gt.gt.get).alleleIndices
-          val dad_alleles = Genotype.gtPair(dad_gt.gt.get).alleleIndices.toSet
-          val mom_alleles = Genotype.gtPair(mom_gt.gt.get).alleleIndices.toSet
+          val dad_alleles = if(dad_gt.isCalled) Genotype.gtPair(dad_gt.gt.get).alleleIndices.toSet else
+            Set.empty[Int]
+          val mom_alleles = if(mom_gt.isCalled) Genotype.gtPair(mom_gt.gt.get).alleleIndices.toSet else
+            Set.empty[Int]
 
-          (dad_alleles.contains(kid_alleles(0)),
-            dad_alleles.contains(kid_alleles(1)),
-            mom_alleles.contains(kid_alleles(0)),
-            mom_alleles.contains(kid_alleles(1)),
+          (dad_alleles.isEmpty || dad_alleles.contains(kid_alleles(0)),
+            dad_alleles.isEmpty || dad_alleles.contains(kid_alleles(1)),
+            mom_alleles.isEmpty || mom_alleles.contains(kid_alleles(0)),
+            mom_alleles.isEmpty || mom_alleles.contains(kid_alleles(1)),
             copyState
             ) match {
             case (false, false, false, false, Auto) => 1 // No allelic match
