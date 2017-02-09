@@ -300,6 +300,35 @@ object VEP {
     val csqHeader = if (csq) getCSQHeaderDefinition(cmd, perl5lib, path).getOrElse("") else ""
     val alleleNumIndex = if (csq) csqHeader.split("\\|").indexOf("ALLELE_NUM") else -1
 
+    val csq_header = getCSQHeaderDefinition(cmd, perl5lib, path)
+
+    val rootType =
+      vds.vaSignature.getOption(parsedRoot)
+        .filter { t =>
+          val r = if (csq) {
+            val csq_desc_match = vds.vaSignature.fieldOption(root) match {
+              case Some(f) => f.attrs("Description") == csq_header
+              case None => false
+            }
+            t == TArray(TString) && csq_desc_match
+          }
+          else t == vepSignature
+
+          if (!r) {
+            if (force)
+              warn(s"type for ${ root } does not match vep signature, overwriting.")
+            else
+              fatal(s"type for ${ root } does not match vep signature.")
+          }
+          r
+        }
+
+    if (rootType.isEmpty && !force)
+      fatal("for performance, you should annotate variants with pre-computed VEP annotations.  Cowardly refusing to VEP annotate from scratch.  Use --force to override.")
+
+    val rootQuery = rootType
+      .map(_ => vds.vaSignature.query(parsedRoot))
+
     val annotations = vds.rdd.mapValues { case (va, gs) => va }
       .mapPartitions({ it =>
         val pb = new ProcessBuilder(cmd.toList.asJava)
@@ -404,6 +433,14 @@ object VEP {
             (v, (insertVEP(va, vaVep.orNull), gs))
           }
       }.asOrderedRDD
+
+    if (csq)
+      vds.copy(rdd = newRDD,
+        vaSignature = newVASignature.asInstanceOf[TStruct]
+          .setFieldAttributes(parsedRoot, Map("Description" -> csq_header)))
+    else
+      vds.copy(rdd = newRDD,
+        vaSignature = newVASignature)
 
     vds.copy(rdd = newRDD,
       vaSignature = newVASignature)
