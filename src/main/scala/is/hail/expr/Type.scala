@@ -637,7 +637,7 @@ case class TStruct(fields: IndexedSeq[Field]) extends Type {
       throw new AnnotationPathException(s"Empty path for attribute annotation is not allowed.")
 
     if (!hasField(path.head))
-      throw new AnnotationPathException(s"struct has no field ${ path.head }")
+      throw new AnnotationPathException(s"Struct has no field ${ path.head }")
 
     this.copy(fields.map({
       f => if (f.name == path.head){

@@ -300,15 +300,15 @@ object VEP extends Command {
 
           if (!r) {
             if (options.force)
-              warn(s"type for ${ options.root } does not match vep signature, overwriting.")
+              warn(s"type for ${ options.root } does not match VEP signature, overwriting.")
             else
-              fatal(s"type for ${ options.root } does not match vep signature.")
+              fatal(s"type for ${ options.root } does not match VEP signature.")
           }
           r
         }
 
     if (rootType.isEmpty && !options.force)
-      fatal("for performance, you should annotate variants with pre-computed VEP annotations.  Cowardly refusing to VEP annotate from scratch.  Use `force=True` option to override.")
+      fatal("refusing to VEP annotate variants from scratch for performance reasons. Use pre-computed VEP annotations or set force=True to override this precaution.")
 
     val rootQuery = rootType
       .map(_ => vds.vaSignature.query(root))

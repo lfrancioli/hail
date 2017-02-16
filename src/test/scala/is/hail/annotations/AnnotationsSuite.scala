@@ -131,21 +131,18 @@ class AnnotationsSuite extends SparkSuite {
       .setVAattributes("va.info.MQ",Map("Number" -> ".", "Description" -> "testMQ", "foo" -> "bar"))
 
     assert(vds_attr.vaSignature.fieldOption("filters")
-      .map(f => f.attrs.getOrElse("testFilter","") == "testFilterDesc")
-      .getOrElse(false))
+      .exists(f => f.attrs.getOrElse("testFilter","") == "testFilterDesc"))
 
     assert(vds_attr.vaSignature.fieldOption(List("info","MQ"))
-      .map(f => f.attrs.getOrElse("foo","") == "bar")
-      .getOrElse(false))
-    assert(vds_attr.vaSignature.fieldOption(List("info","MQ"))
-      .map(f => f.attrs.getOrElse("Description","") == "testMQ")
-      .getOrElse(false))
-    assert(vds_attr.vaSignature.fieldOption(List("info","MQ"))
-      .map(f => f.attrs.getOrElse("Number","") == ".")
-      .getOrElse(false))
+      .exists(f => f.attrs.getOrElse("foo","") == "bar"))
 
+    assert(vds_attr.vaSignature.fieldOption(List("info","MQ"))
+      .exists(f => f.attrs.getOrElse("Description","") == "testMQ"))
 
-    // Write VCF and check that annotaions are the same
+    assert(vds_attr.vaSignature.fieldOption(List("info","MQ"))
+      .exists(f => f.attrs.getOrElse("Number","") == "."))
+
+    // Write VCF and check that annotations are the same
     val f2 = tmpDir.createTempFile("sample2", extension = ".vds")
     vds_attr.write(sqlContext, f2)
     val readBack2 = Read.run(state, Array("-i", f2))
