@@ -4,6 +4,7 @@ import java.util.Properties
 
 import is.hail.annotations.Annotation
 import is.hail.expr.{EvalContext, Parser, TStruct, Type, _}
+import is.hail.io.annotators.IntervalListAnnotator
 import is.hail.io.bgen.BgenLoader
 import is.hail.io.gen.{GenLoader, GenReport}
 import is.hail.io.plink.{FamFileConfig, PlinkLoader}
@@ -21,6 +22,7 @@ import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spark.{ProgressBarBuilder, SparkConf, SparkContext}
 
 import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
 
 object HailContext {
 
@@ -560,6 +562,38 @@ class HailContext private(val sc: SparkContext,
     }
 
     info(s"Number of BGEN files indexed: ${ inputs.length }")
+  }
+
+  def syntheticFromFasta(file: String, flanking_context: Int = 0, intervals: Option[String] = None) : VariantDataset = {
+
+    val intervalsBc = sc.broadcast(intervals.map(IntervalListAnnotator.read(_, hadoopConf, prune = true)))
+
+    val contigs = hadoopConf.readFile(file) { s =>
+      var contig = ""
+      var last_seq = ""
+      Source.fromInputStream(s)
+        .getLines().foldLeft((new ArrayBuffer[Tuple2[String,String]]))({
+        case (res, line) =>
+          if (line.indexOf('>') == 0) {
+            contig = line.split("[\\>\\s]")(1)
+            res
+          } else {
+            res.append((contig,line))
+            res
+          }
+      })
+    }
+
+    val padded_contigs = Range(1,contigs.length)
+      .map(i => (contigs(i-1)))
+
+    val rdd = sc.parallelize(contigs)
+      .flatMap({case (contig, seq) =>
+          Range(flanking_context, seq.length - flanking_context - 1)
+            .map(i => (contig, seq.substring(i - flanking_context, i + flanking_context + 1)))
+      })
+
+
   }
 
   def baldingNicholsModel(populations: Int,
