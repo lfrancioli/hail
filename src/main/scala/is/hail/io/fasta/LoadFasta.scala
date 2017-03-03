@@ -17,8 +17,13 @@ object LoadFasta {
     create_snv_alleles: Boolean = false,
     create_deletion_size: Int = 0,
     create_insertion_size : Int = 0,
-    flanking_context: Int = 0) : VariantDataset = {
+    flanking_context: Int = 0,
+    line_limit: Int = 10000) : VariantDataset = {
 
+    if(line_limit < flanking_context)
+      fatal("Import fasta does not support flanking context larger than the fasta sequence line length.")
+    if(line_limit < create_deletion_size)
+      fatal("Import fasta does not support deletion sizes larger than the fasta sequence line_limit.")
     if(create_insertion_size > 4)
       fatal("At the moment we capped the max deletion size to 4bp (i.e. 256 alleles per site)")
 
@@ -66,38 +71,52 @@ object LoadFasta {
 
     }
 
-    info("Loading contigs\n")
+    val contigs = new ArrayBuffer[Tuple5[String, Int ,String, String, String]]()
 
-    val contigs = hConf.readFile(file) { s =>
+   hConf.readFile(file) { s =>
       var contig = ""
+      var seq = ""
+      var prev_flank = ""
       var pos = 1
-      var flank_size = Math.max(flanking_context, create_deletion_size)
+      val flank_size = Math.max(flanking_context, create_deletion_size)
       Source.fromInputStream(s)
-        .getLines().foldLeft((new ArrayBuffer[Tuple5[String, Int ,String, String, String]]))({
-        case (res, line) =>
+        .getLines().foreach({
+        line =>
           if (line.indexOf('>') == 0) {
+            if(!contig.isEmpty) {
+              info(s"Contig ${contig} loaded. Contig size: ${pos + seq.length}\n")
+              contigs.append((contig, pos, seq, prev_flank, ""))
+            }
             contig = line.split("[\\>\\s]")(1)
+            info(s"Loading contig ${contig}")
             pos = 1
-            res
+            seq = ""
+            prev_flank = ""
           }
           else {
-            if(line.length < flanking_context)
-              fatal("Import fasta does not support flanking context larger than the fasta sequence line length.")
-            if(line.length < create_deletion_size)
-              fatal("Import fasta does not support deletion sizes larger than the fasta sequence line length.")
-            pos += line.length
-            if (res.length > 0 && contig == res.last._1) {
-              res(res.length - 1) = (res.last._1, res.last._2 ,res.last._3, res.last._4, line.take(flank_size))
-              res.append((contig, pos, line, res.last._3.takeRight(flank_size), ""))
+            seq += line
+            if(seq.length >= line_limit){
+              if(!prev_flank.isEmpty)
+                contigs(contigs.length - 1) = (contigs.last._1, contigs.last._2 ,contigs.last._3, contigs.last._4, seq.take(flank_size))
+              contigs.append((contig, pos, seq, prev_flank, ""))
+              pos += seq.length
+              prev_flank = seq.takeRight(flank_size)
+              seq = ""
             }
-            else
-              res.append((contig, pos, line, "", ""))
-            res
           }
       })
+
+     if(seq.length > 0){
+       if(contigs.last._1 == contig)
+         contigs(contigs.length - 1) = (contigs.last._1, contigs.last._2 ,contigs.last._3 + seq, contigs.last._4, "")
+       else
+         contigs.append((contig, pos, seq, prev_flank, ""))
+     }
+     info(s"Contig ${contig} loaded. Contig size: ${pos + seq.length - 1}")
     }
 
-    info("Creating VDS\n")
+
+    info("Creating VDS")
 
     val rdd = sc.parallelize(contigs)
       .flatMap({
