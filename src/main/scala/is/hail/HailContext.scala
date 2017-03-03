@@ -570,8 +570,16 @@ class HailContext private(val sc: SparkContext,
     create_snv_alleles: Boolean = false,
     create_deletion_size: Int = 0,
     create_insertion_size: Int = 0,
-    flanking_context: Int = 0) : VariantDataset = {
-    LoadFasta(this, file, filter_Ns, create_snv_alleles, create_deletion_size, create_insertion_size, flanking_context)
+    flanking_context: Int = 0,
+    line_limit: Int = 5000) : VariantDataset = {
+    LoadFasta(hc = this,
+      file = file,
+      filter_Ns = filter_Ns,
+      create_snv_alleles = create_snv_alleles,
+      create_deletion_size = create_deletion_size,
+      create_insertion_size = create_insertion_size,
+      flanking_context = flanking_context,
+      line_limit = line_limit)
   }
 
   def baldingNicholsModel(populations: Int,

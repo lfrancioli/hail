@@ -18,7 +18,7 @@ object LoadFasta {
     create_deletion_size: Int = 0,
     create_insertion_size : Int = 0,
     flanking_context: Int = 0,
-    line_limit: Int = 10000) : VariantDataset = {
+    line_limit: Int = 5000) : VariantDataset = {
 
     if(line_limit < flanking_context)
       fatal("Import fasta does not support flanking context larger than the fasta sequence line length.")

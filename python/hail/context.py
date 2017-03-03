@@ -513,13 +513,14 @@ class HailContext(object):
 
     @handle_py4j
     def import_fasta(self, path, filter_Ns=True, create_snv_alleles=False,
-                     create_deletion_size =0, create_insertion_size=0, flanking_context=0):
+                     create_deletion_size =0, create_insertion_size=0, flanking_context=0, line_limit = 5000):
         return VariantDataset(self, self._jhc.importFasta(path,
                                                           filter_Ns,
                                                           create_snv_alleles,
                                                           create_deletion_size,
                                                           create_insertion_size,
-                                                          flanking_context))
+                                                          flanking_context,
+                                                          line_limit))
 
     @handle_py4j
     def index_bgen(self, path):
