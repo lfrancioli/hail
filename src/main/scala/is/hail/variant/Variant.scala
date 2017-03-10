@@ -413,14 +413,7 @@ case class Variant(contig: String,
         altAlleles.indexWhere(x => x.alt == aa.alt + ref_diff)
     }
   }
-
-  def minrep : Variant = {
-    val alts = altAlleles.map(a => a.alt)
-    require(alts.forall(ref != _))
-  def minRep : Variant = {
-    val alts = altAlleles.filter(!_.isStar).map(a => a.alt)
-
-    if(alts.isEmpty)
+  
   def minRep: Variant = {
     if (ref.length == 1)
       this

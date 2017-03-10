@@ -969,6 +969,73 @@ case class TStruct(fields: IndexedSeq[Field]) extends Type {
     }
   }
 
+  def addAllFields(that: TStruct) : TStruct = {
+
+    val updatedFields = fields.map{
+      f =>
+        that.fieldIdx.get(f.name) match{
+          case (Some(i)) =>
+            (f.typ, that.fields(i).typ) match {
+              case (s1: TStruct, s2: TStruct) => f.copy(typ = s1.addAllFields(s2))
+              case (t1, t2) =>
+                if (t1 != t2)
+                  fatal(s"Conflicting field types $t1, $t2 for field ${f.name} when trying to merge Structs. ")
+                f
+            }
+          case None =>
+            f
+        }
+    } ++ that.fields.filter(f => !fieldIdx.contains(f.name))
+
+    TStruct(fields = updatedFields)
+  }
+
+
+
+  def reOrder(order: TStruct): (TStruct, Deleter) = {
+
+    val newFields = Array.ofDim[Field](fields.length)
+    val newIndicesAndUpdaters = Array.ofDim[Tuple2[Int, Option[Deleter]]](fields.length)
+
+    fields.foreach {
+      f =>
+        order.fieldIdx.get(f.name) match {
+          case Some(newIndex) =>
+            f.typ match {
+              case struct: TStruct =>
+                val (newFieldType, updater) = struct.reOrder(order.fields(newIndex).typ.asInstanceOf[TStruct])
+                newFields(f.index) = f.copy(typ = newFieldType, index = newIndex)
+                newIndicesAndUpdaters(f.index) = (newIndex, Some(updater))
+              case t =>
+                newFields(f.index) = f.copy(index = newIndex)
+                newIndicesAndUpdaters(f.index) = (newIndex, None)
+            }
+          case None => fatal(s"Field ${ f.name } not found Struct order template. Fields in template: ${ order.fields.map(_.name).mkString(", ") }")
+        }
+    }
+
+    val updater: Deleter = (a) => {
+      if (a == Annotation.empty)
+        Annotation.empty
+      else {
+        val oldRow = a.asInstanceOf[Row]
+        if (oldRow.length != fields.length)
+          fatal(s"Discrepancy between row length ${ oldRow.length } and fields length ${ fields.length }. Fields are: ${ fields.map(_.name).mkString(", ") }")
+        val newValues = oldRow.toSeq.zipWithIndex.map {
+          case (ann, i) =>
+            newIndicesAndUpdaters(i) match {
+              case (newIndex, Some(updater)) => (updater(ann), newIndex)
+              case (newIndex, None) => (ann, newIndex)
+            }
+        }.sortBy(_._2).map(_._1)
+        Row.fromSeq(newValues)
+      }
+    }
+
+    (TStruct(fields = newFields.sortBy(_.index): IndexedSeq[Field]), updater)
+
+  }
+
   def updateKey(key: String, i: Int, sig: Type): Type = {
     assert(fieldIdx.contains(key))
 
