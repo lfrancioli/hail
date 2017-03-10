@@ -181,6 +181,63 @@ object HailContext {
     info(s"Running Hail version ${hc.version}")
     hc
   }
+
+  def checkDatasetSchemasCompatible[T](datasets: Array[VariantSampleMatrix[T]], inputs: Array[String]): Unit = {
+    val sampleIds = datasets.head.sampleIds
+    val vaSchema = datasets.head.vaSignature
+    val wasSplit = datasets.head.wasSplit
+    val genotypeSchema = datasets.head.genotypeSignature
+    val isGenericGenotype = datasets.head.isGenericGenotype
+    val reference = inputs(0)
+
+    datasets.indices.tail.foreach { i =>
+      val vds = datasets(i)
+      val ids = vds.sampleIds
+      val vas = vds.vaSignature
+      val gsig = vds.genotypeSignature
+      val isGenGt = vds.isGenericGenotype
+      val path = inputs(i)
+      if (ids != sampleIds) {
+        fatal(
+          s"""VDS schemas incompatible: different sample IDs or sample ordering
+             |  IDs in reference file $reference: @1
+             |  IDs in file $path: @2""".stripMargin, sampleIds, ids)
+      } else if (wasSplit != vds.wasSplit) {
+        fatal(
+          s"""VDS schemas incompatible: cannot combine split and unsplit datasets
+             |  Reference file $reference split status: $wasSplit
+             |  File $path split status: ${ vds.wasSplit }""".stripMargin)
+      } else if (vas != vaSchema) {
+        fatal(
+          s"""VDS schemas incompatible: different variant annotation schemata
+             |  Schema in reference file $reference: @1
+             |  Schema in file $path: @2""".stripMargin,
+          vaSchema.toPrettyString(compact = true, printAttrs = true),
+          vas.toPrettyString(compact = true, printAttrs = true)
+        )
+      } else if (gsig != genotypeSchema) {
+        fatal(
+          s"""VDS schemas incompatible: different genotype schemata
+             |  Schema in reference file $reference: @1
+             |  Schema in file $path: @2""".stripMargin,
+          genotypeSchema.toPrettyString(compact = true, printAttrs = true),
+          gsig.toPrettyString(compact = true, printAttrs = true)
+        )
+      } else if (isGenGt != isGenericGenotype) {
+        fatal(
+          s"""VDS schemas incompatible: different data formats
+             |  Generic genotypes in reference file $reference: @1
+             |  Generic genotypes in file $path: @2""".stripMargin,
+          isGenericGenotype.toString,
+          isGenGt.toString
+        )
+      }
+    }
+
+    if (datasets.length > 1)
+      info(s"Using sample and global annotations from VDS ${ inputs(0) }")
+  }
+
 }
 
 class HailContext private(val sc: SparkContext,
@@ -432,7 +489,7 @@ class HailContext private(val sc: SparkContext,
     if (vsms.length == 1)
       return vsms(0)
 
-    checkDatasetSchemasCompatible(vsms, inputs)
+    HailContext.checkDatasetSchemasCompatible(vdses, inputs)
 
     // I can't figure out how to write this with existentials -cs
     if (vsms(0).isGenericGenotype) {
@@ -460,6 +517,7 @@ class HailContext private(val sc: SparkContext,
   def readGDS(file: String, dropSamples: Boolean = false, dropVariants: Boolean = false): GenericDataset =
     readAllGDS(List(file), dropSamples, dropVariants)
 
+    HailContext.checkDatasetSchemasCompatible(gdses, inputs)
   def readAllGDS(files: Seq[String], dropSamples: Boolean = false, dropVariants: Boolean = false): GenericDataset = {
     val vds = readAll(files, dropSamples, dropVariants)
 

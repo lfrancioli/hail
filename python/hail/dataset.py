@@ -5113,6 +5113,11 @@ class VariantDataset(object):
         self._jvds.typecheck()
 
     @handle_py4j
+    def union(self, other_vdses):
+        jvds = self._jvds.union(jindexed_seq([x._jvds for x in other_vdses]))
+        return VariantDataset(self.hc, jvds)
+
+    @handle_py4j
     @requireTGenotype
     @typecheck_method(root=strlike)
     def variant_qc(self, root='va.qc'):

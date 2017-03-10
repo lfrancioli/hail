@@ -1967,6 +1967,42 @@ class VariantSampleMatrix[T](val hc: HailContext, val metadata: VSMMetadata,
   override def toString =
     s"VariantSampleMatrix(metadata=$metadata, rdd=$rdd, sampleIds=$sampleIds, nSamples=$nSamples, vaSignature=$vaSignature, saSignature=$saSignature, globalSignature=$globalSignature, sampleAnnotations=$sampleAnnotations, sampleIdsAndAnnotations=$sampleIdsAndAnnotations, globalAnnotation=$globalAnnotation, wasSplit=$wasSplit)"
 
+  def union(vdses: IndexedSeq[VariantSampleMatrix[T]], mergeSchemas : Boolean): VariantSampleMatrix[T] = {
+
+    def getUnifiedSchemaVDSs(vdses : IndexedSeq[VariantSampleMatrix[T]]) : IndexedSeq[VariantSampleMatrix[T]] = {
+
+        vaSignature match {
+          case struct: TStruct =>
+            val otherSignatures = (0 until vdses.length).toArray.map {
+              i =>
+                vdses(i).vaSignature match {
+                  case t: TStruct => t
+                  case t => fatal(s"Cannot merge schema of VDS $i with va of type ${ vdses(i).vaSignature } with schema of type $vaSignature.")
+                }
+            }
+            val (newSignature, updaters) = TStruct.mergeTStructs(struct +: otherSignatures)
+            (this +: vdses).zip(updaters).map {
+              case (vds, updater) => vds.copy(
+                vaSignature = newSignature,
+                rdd = vds.rdd.mapValues { case (va, gs) => (updater(va), gs) }.asOrderedRDD
+              )
+            }
+          case t =>
+            (0 until vdses.length).foreach {
+              i =>
+                if (t != vdses(i).vaSignature)
+                  fatal(s"Cannot merge schema of VDS $i with va of type ${ vdses(i).vaSignature } with schema of type $vaSignature.")
+            }
+            (this +: vdses)
+        }
+    }
+
+    val all_vdses = if(mergeSchemas) getUnifiedSchemaVDSs(vdses) else (this +: vdses)
+    HailContext.checkDatasetSchemasCompatible(all_vdses.toArray, (1 to all_vdses.length).map(_.toString).toArray)
+    copy(vaSignature = all_vdses.head.vaSignature, rdd = sparkContext.union(all_vdses.map(_.rdd)).toOrderedRDD)
+  }
+
+  def nSamples: Int = metadata.sampleIds.length
   def nSamples: Int = sampleIds.length
 
   def typecheck() {
