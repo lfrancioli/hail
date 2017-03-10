@@ -168,7 +168,7 @@ object HailContext {
     info(s"Running Hail version ${hc.version}")
     hc
   }
-  
+
   def readRowsPartition(t: TStruct)(i: Int, in: InputStream): Iterator[RegionValue] = {
     new Iterator[RegionValue] {
       val region = MemoryBuffer()
@@ -386,6 +386,12 @@ class HailContext private(val sc: SparkContext,
   def read(file: String, dropSamples: Boolean = false, dropVariants: Boolean = false): VariantSampleMatrix[_, _, _] = {
     VariantSampleMatrix.read(this, file, dropSamples = dropSamples, dropVariants = dropVariants)
   }
+  def checkDatasetSchemasCompatible[T:ClassTag](datasets: Array[VariantSampleMatrix[T]], inputs: Array[String]): Unit = {
+    datasets.indices.tail.foreach { i =>
+      datasets.head.checkDatasetSchemasCompatible(datasets(i),
+        reference_name = inputs.head,
+        input_name = inputs(i))
+    }
 
   def readVDS(file: String, dropSamples: Boolean = false, dropVariants: Boolean = false): VariantDataset =
     read(file, dropSamples, dropVariants).toVDS
@@ -394,6 +400,59 @@ class HailContext private(val sc: SparkContext,
     read(file, dropSamples, dropVariants).toGDS
 
   def readTable(path: String): KeyTable =
+  def readAllMetadata(files: Seq[String]): Array[(VariantMetadata, Boolean)] = files.map(readMetadata).toArray
+
+  def read(file: String, sitesOnly: Boolean = false, samplesOnly: Boolean = false,
+    metadata: Option[Array[(VariantMetadata, Boolean)]] = None): VariantDataset =
+    readAll(List(file), sitesOnly, samplesOnly, metadata)
+
+  def readAll(files: Seq[String], sitesOnly: Boolean = false, samplesOnly: Boolean = false,
+    metadata: Option[Array[(VariantMetadata, Boolean)]] = None): VariantDataset = {
+    val inputs = hadoopConf.globAll(files)
+    if (inputs.isEmpty)
+      fatal("arguments refer to no files")
+
+    val (mdArray, pqgtArray) = metadata match {
+      case Some(data) => data.unzip
+      case _ => inputs.map(VariantDataset.readMetadata(sc.hadoopConfiguration, _)).unzip
+    }
+
+    val vdses = inputs.zipWithIndex.map { case (input, i) =>
+      VariantDataset.read(this, input, mdArray(i), pqgtArray(i),
+        skipGenotypes = sitesOnly, skipVariants = samplesOnly)
+    }
+
+    checkDatasetSchemasCompatible(vdses, inputs)
+
+    vdses(0).copy(rdd = sc.union(vdses.map(_.rdd)).toOrderedRDD)
+  }
+
+  def readGDS(file: String, sitesOnly: Boolean = false, samplesOnly: Boolean = false,
+    metadata: Option[Array[(VariantMetadata, Boolean)]] = None): GenericDataset =
+    readAllGDS(List(file), sitesOnly, samplesOnly, metadata)
+
+  def readAllGDS(files: Seq[String], sitesOnly: Boolean = false, samplesOnly: Boolean = false,
+    metadata: Option[Array[(VariantMetadata, Boolean)]] = None): GenericDataset = {
+    val inputs = hadoopConf.globAll(files)
+    if (inputs.isEmpty)
+      fatal("arguments refer to no files")
+
+    val (mdArray, pqgtArray) = metadata match {
+      case Some(data) => data.unzip
+      case _ => inputs.map(VariantDataset.readMetadata(sc.hadoopConfiguration, _)).unzip
+    }
+
+    val gdses = inputs.zipWithIndex.map { case (input, i) =>
+      GenericDataset.read(this, input, mdArray(i), pqgtArray(i),
+        skipGenotypes = sitesOnly, skipVariants = samplesOnly)
+    }
+
+    checkDatasetSchemasCompatible(gdses, inputs)
+
+    gdses(0).copy(rdd = sc.union(gdses.map(_.rdd)).toOrderedRDD)
+  }
+
+  def readKeyTable(path: String): KeyTable =
     KeyTable.read(this, path)
 
   def readPartitions[T: ClassTag](
@@ -401,7 +460,7 @@ class HailContext private(val sc: SparkContext,
     nPartitions: Int,
     read: (Int, InputStream) => Iterator[T],
     optPartitioner: Option[Partitioner] = None): RDD[T] = {
-    
+
     val sHadoopConfBc = sc.broadcast(new SerializableHadoopConfiguration(sc.hadoopConfiguration))
     val d = digitsNeeded(nPartitions)
 
@@ -425,10 +484,10 @@ class HailContext private(val sc: SparkContext,
       @transient override val partitioner: Option[Partitioner] = optPartitioner
     }
   }
-  
+
   def readRows(path: String, t: TStruct, nPartitions: Int): RDD[RegionValue] =
     readPartitions(path, nPartitions, HailContext.readRowsPartition(t))
-  
+
   def importVCF(file: String, force: Boolean = false,
     forceBGZ: Boolean = false,
     headerFile: Option[String] = None,

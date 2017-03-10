@@ -727,7 +727,7 @@ class VariantSampleMatrix[RPK, RK, T >: Null](val hc: HailContext, val metadata:
     insertIntoRow(() => new UnsafeRow(localRowType))(
       newVASignature, List("va"), { (ur, rv, rvb) =>
         ur.set(rv)
-        
+
         val v = ur.getAs[RK](1)
         val va = ur.get(2)
         val gs = ur.getAs[Iterable[T]](3)
@@ -1882,6 +1882,56 @@ class VariantSampleMatrix[RPK, RK, T >: Null](val hc: HailContext, val metadata:
     s"VariantSampleMatrix(metadata=$metadata, rdd=$rdd, sampleIds=$sampleIds, nSamples=$nSamples, vaSignature=$vaSignature, saSignature=$saSignature, globalSignature=$globalSignature, sampleAnnotations=$sampleAnnotations, sampleIdsAndAnnotations=$sampleIdsAndAnnotations, globalAnnotation=$globalAnnotation, wasSplit=$wasSplit)"
 
   def nSamples: Int = sampleIds.length
+  def checkDatasetSchemasCompatible[T:ClassTag](that: VariantSampleMatrix[T], input_name: String = "", reference_name: String = "") : VariantSampleMatrix[T] = {
+    if (that.sampleIds != sampleIds) {
+      fatal(
+        s"""cannot read datasets with different sample IDs or sample ordering
+            |  IDs in reference $reference_name: @1
+            |  IDs in $input_name: @2""".stripMargin, sampleIds, that.sampleIds)
+    } else if (wasSplit != that.wasSplit) {
+      fatal(
+        s"""cannot combine split and unsplit datasets
+            |  Reference $reference_name split status: $wasSplit
+            |  $input_name split status: ${ that.wasSplit }""".stripMargin)
+    } else if (vaSignature != that.vaSignature) {
+      warn(
+        s"""cannot read datasets with different variant annotation schemata. attempting to reorder."""
+      )
+      val (newVaSignature, updater) = that.vaSignature.asInstanceOf[TStruct].reOrder(vaSignature.asInstanceOf[TStruct])
+      if (vaSignature != newVaSignature)
+        fatal("Reordering failed :(")
+      that.copy(
+        rdd = that.rdd.mapValues{ case (va,gs) => (updater(va),gs)}.asOrderedRDD,
+        vaSignature = newVaSignature
+      )
+    }else if (genotypeSignature != that.genotypeSignature) {
+      fatal(
+        s"""cannot read datasets with different genotype schemata
+           |  Schema in reference file $reference_name: @1
+           |  Schema in file $input_name: @2""".stripMargin,
+        genotypeSignature.toPrettyString(compact = true, printAttrs = true),
+        that.genotypeSignature.toPrettyString(compact = true, printAttrs = true)
+      )
+    } else if (isGenericGenotype != that.isGenericGenotype) {
+      fatal(
+        s"""cannot read datasets with different data formats
+           |  Generic genotypes in reference file $reference_name: @1
+           |  Generic genotypes in file $input_name: @2""".stripMargin,
+        isGenericGenotype.toString,
+        that.isGenericGenotype.toString
+      )
+    } else {
+      that
+    }
+  }
+
+  def union(vdses: IndexedSeq[VariantSampleMatrix[T]]): VariantSampleMatrix[T] = {
+    val others = vdses.map(checkDatasetSchemasCompatible(_, input_name = "other").rdd)
+    val rdds = Array(rdd) ++ others.map(_.rdd)
+    copy(rdd = sparkContext.union(rdds).toOrderedRDD)
+  }
+
+  def nSamples: Int = metadata.sampleIds.length
 
   def typecheck() {
     var foundError = false
