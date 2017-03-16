@@ -818,6 +818,67 @@ case class TStruct(fields: IndexedSeq[Field]) extends Type {
     }
   }
 
+  def delete(set: Set[List[String]]): (TStruct, Deleter) = {
+
+    val nonEmptyPaths = set.filter(!_.isEmpty)
+    if (nonEmptyPaths.isEmpty)
+      (this, (a: Annotation) => a)
+    else {
+      val headsTails = nonEmptyPaths.groupBy(_.head).map(x => (x._1, x._2.tail))
+      val notFound = headsTails.keys.filter(name => selfField(name).isEmpty).map(prettyIdentifier)
+      if (notFound.nonEmpty)
+        fatal(
+          s"""invalid struct filter operation: ${
+            plural(notFound.size, s"field ${ notFound.head }", s"fields [ ${ notFound.mkString(", ") } ]")
+          }
+ not found
+             |  Existing struct fields: [ ${ fields.map(f => prettyIdentifier(f.name)).mkString(", ") } ]""".
+
+            stripMargin)
+
+      val fieldUpdate = headsTails.map {
+        case (head, tails) =>
+          val f = selfField(head) match {
+            case Some(f) => f
+            case None => throw new AnnotationPathException(s"$head not found")
+          }
+          if (tails.size < 2)
+            (f.index, delete(head :: tails.toList.flatten))
+          else {
+            assert(f.typ.isInstanceOf[TStruct])
+            (f.index, f.asInstanceOf[TStruct].delete(tails))
+          }
+      }
+
+      val deletedFieldIndices = fieldUpdate.filter { case (fi, (t, d)) => t == TStruct.empty }.keys.toSet
+      val newFields = Array.fill[Field](fields.length - deletedFieldIndices.size)(null)
+      var deltaIndex = 0
+      for (i <- 0 until fields.length) {
+        if (deletedFieldIndices.contains(i))
+          deltaIndex += 1
+        else {
+          val newIndex = i - deltaIndex
+          val newType = fieldUpdate.get(i) match {
+            case Some((newType, deleter)) => newType
+            case None => fields(i).typ
+          }
+          newFields(newIndex) = fields(i).copy(typ = newType, index = newIndex)
+        }
+      }
+
+      val deleter: Deleter = { a =>
+        if (a == Annotation.empty)
+          Annotation.empty
+        else
+          fieldUpdate.map { case (fi, (t, d)) => (fi, d) }.foldLeft(a.asInstanceOf[Row]) {
+            case (r, (fi, d)) => r.update(fi, d(r.get(fi)))
+          }
+      }
+
+      (TStruct(newFields), deleter)
+    }
+  }
+
   override def insert(signature: Type, p: List[String]): (Type, Inserter) = {
     if (p.isEmpty)
       (signature, (a, toIns) => toIns)

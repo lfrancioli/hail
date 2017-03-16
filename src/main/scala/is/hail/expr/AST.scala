@@ -482,11 +482,14 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
         }
         val identifiers = tail.map {
           case SymRef(_, id) => id
+          case Select(_,struct,id) => id
           case other =>
             parseError(
               s"""invalid arguments for method `$fn'
                  |  Expected struct field identifiers after the first position, but found a `${ other.getClass.getSimpleName }' expression""".stripMargin)
         }
+        info(tail.map(_.toString).mkString(","))
+        info(identifiers.mkString(","))
         val duplicates = identifiers.duplicates()
         if (duplicates.nonEmpty)
           parseError(
@@ -494,7 +497,10 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
                |  Duplicate ${ plural(duplicates.size, "identifier") } found: [ ${ duplicates.map(prettyIdentifier).mkString(", ") } ]""".stripMargin)
 
         val (tNew, _) = try {
-          struct.filter(identifiers.toSet, include = fn == "select")
+          if(fn == "select")
+            struct.filter(identifiers.toSet, include = true)
+          else
+            struct.delete(identifiers.toSet.map((x: String) => Parser.parseIdentifierList(x).toList))
         } catch {
           case f: FatalException => parseError(
             s"""invalid arguments for method `$fn'
