@@ -218,25 +218,6 @@ object VEP {
 
     val parsedRoot = Parser.parseAnnotationRoot(root, Annotation.VARIANT_HEAD)
 
-    val rootType =
-      vds.vaSignature.getOption(parsedRoot)
-        .filter { t =>
-          val r = t == (if (csq) TArray(TString) else vepSignature)
-          if (!r) {
-            if (force)
-              warn(s"type for $parsedRoot does not match vep signature, overwriting.")
-            else
-              warn(s"type for $parsedRoot does not match vep signature.")
-          }
-          r
-        }
-
-    if (rootType.isEmpty && !force)
-      fatal("for performance, you should annotate variants with pre-computed VEP annotations.  Cowardly refusing to VEP annotate from scratch.  Use --force to override.")
-
-    val rootQuery = rootType
-      .map(_ => vds.vaSignature.query(parsedRoot))
-
     val properties = try {
       val p = new Properties()
       val is = new FileInputStream(config)
@@ -437,12 +418,10 @@ object VEP {
     if (csq)
       vds.copy(rdd = newRDD,
         vaSignature = newVASignature.asInstanceOf[TStruct]
-          .setFieldAttributes(parsedRoot, Map("Description" -> csq_header)))
+          .setFieldAttributes(parsedRoot, Map("Description" -> csqHeader)))
     else
       vds.copy(rdd = newRDD,
         vaSignature = newVASignature)
 
-    vds.copy(rdd = newRDD,
-      vaSignature = newVASignature)
   }
 }
