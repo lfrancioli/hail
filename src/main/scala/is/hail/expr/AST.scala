@@ -206,6 +206,14 @@ object AST extends Positional {
       Code(stb, bc.ifNull(Code._null,
         Code(stc, cc.ifNull(Code._null,
           Code(std, dc.ifNull(Code._null, gc))))))))
+
+  def getSelectPath(x: AST) : List[String] = {
+    x match {
+      case SymRef(_, id) => List(id)
+      case Select(_,lhs,rhs) => getSelectPath(lhs) :+ rhs
+    }
+  }
+
 }
 
 case class Positioned[T](x: T) extends Positional
@@ -482,7 +490,7 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
         }
         val identifiers = tail.map {
           case SymRef(_, id) => id
-          case Select(_,struct,id) => id
+          case Select(_,_,id) => id
           case other =>
             parseError(
               s"""invalid arguments for method `$fn'
@@ -490,6 +498,7 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
         }
         info(tail.map(_.toString).mkString(","))
         info(identifiers.mkString(","))
+        info(tail.map(AST.getSelectPath(_)).mkString(", "))
         val duplicates = identifiers.duplicates()
         if (duplicates.nonEmpty)
           parseError(
@@ -500,7 +509,7 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
           if(fn == "select")
             struct.filter(identifiers.toSet, include = true)
           else
-            struct.delete(identifiers.toSet.map((x: String) => Parser.parseIdentifierList(x).toList))
+            struct.delete(tail.map(AST.getSelectPath(_)).toSet)
         } catch {
           case f: FatalException => parseError(
             s"""invalid arguments for method `$fn'
