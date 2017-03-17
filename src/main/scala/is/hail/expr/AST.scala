@@ -547,7 +547,7 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
       result <- CM.invokePrimitive2(merger)(f1, f2)
     ) yield result.asInstanceOf[Code[AnyRef]] // totally could be a problem
 
-    case ("select" | "drop", Array(head, tail @ _*)) =>
+    case ("select", Array(head, tail @ _*)) =>
       val struct = head.`type`.asInstanceOf[TStruct]
       val identifiers = tail.map { ast =>
         (ast: @unchecked) match {
@@ -556,6 +556,14 @@ case class Apply(posn: Position, fn: String, args: Array[AST]) extends AST(posn,
       }
 
       val (_, filterer) = struct.filter(identifiers.toSet, include = fn == "select")
+
+      AST.evalComposeCodeM[AnyRef](head)(CM.invokePrimitive1(filterer.asInstanceOf[(AnyRef) => AnyRef]))
+
+    case ("drop", Array(head, tail @ _*)) =>
+      val struct = head.`type`.asInstanceOf[TStruct]
+      val identifiers = tail.map(AST.getSelectPath(_))
+
+      val (_, filterer) = struct.delete(identifiers.toSet)
 
       AST.evalComposeCodeM[AnyRef](head)(CM.invokePrimitive1(filterer.asInstanceOf[(AnyRef) => AnyRef]))
 

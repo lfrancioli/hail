@@ -819,12 +819,12 @@ case class TStruct(fields: IndexedSeq[Field]) extends Type {
   }
 
   def delete(set: Set[List[String]]): (TStruct, Deleter) = {
-
+    info(s"deleting: ${set.map(_.mkString(".")).mkString(", ")}")
     val nonEmptyPaths = set.filter(!_.isEmpty)
     if (nonEmptyPaths.isEmpty)
       (this, (a: Annotation) => a)
     else {
-      val headsTails = nonEmptyPaths.groupBy(_.head).map(x => (x._1, x._2.tail))
+      val headsTails = nonEmptyPaths.groupBy(_.head).mapValues(x => x.map(_.tail))
       val notFound = headsTails.keys.filter(name => selfField(name).isEmpty).map(prettyIdentifier)
       if (notFound.nonEmpty)
         fatal(
@@ -842,15 +842,16 @@ case class TStruct(fields: IndexedSeq[Field]) extends Type {
             case Some(f) => f
             case None => throw new AnnotationPathException(s"$head not found")
           }
-          if (tails.size < 2)
-            (f.index, delete(head :: tails.toList.flatten))
-          else {
-            assert(f.typ.isInstanceOf[TStruct])
-            (f.index, f.asInstanceOf[TStruct].delete(tails))
+          if (tails.size < 2) {
+            val x = (f.index, f.typ.delete(tails.toList.flatten))
+            info(s"Field ${f.name}: deleting ${tails.toList.flatten.mkString(".")} => ${x._2._1}")
+            x
           }
+          else
+            (f.index, f.typ.asInstanceOf[TStruct].delete(tails))
       }
 
-      val deletedFieldIndices = fieldUpdate.filter { case (fi, (t, d)) => t == TStruct.empty }.keys.toSet
+      val deletedFieldIndices = fieldUpdate.filter { case (fi, (t, d)) => t == TStruct.empty || t == Annotation.empty }.keys.toSet
       val newFields = Array.fill[Field](fields.length - deletedFieldIndices.size)(null)
       var deltaIndex = 0
       for (i <- 0 until fields.length) {
@@ -869,7 +870,7 @@ case class TStruct(fields: IndexedSeq[Field]) extends Type {
       val deleter: Deleter = { a =>
         if (a == Annotation.empty)
           Annotation.empty
-        else
+        else // TODO => use field name rather than index since index will change as fields get deleted
           fieldUpdate.map { case (fi, (t, d)) => (fi, d) }.foldLeft(a.asInstanceOf[Row]) {
             case (r, (fi, d)) => r.update(fi, d(r.get(fi)))
           }
