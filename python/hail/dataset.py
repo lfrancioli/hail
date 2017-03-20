@@ -208,6 +208,54 @@ class VariantDataset(HistoryMixin):
         jvds = self._jvdf.annotateAllelesExpr(expr, propagate_gq)
         return VariantDataset(self.hc, jvds)
 
+
+    @handle_py4j
+    def annotate_alleles_vds(self, other, code, match_star = True):
+        """Annotate variants / alleles from another VDS
+
+        **Examples**
+
+        Import a second VDS, ``vd2``, with annotations to merge into ``vds``:
+
+        >>> vds2 = hc.read("data/example2.vds")
+
+        Copy the inbreeding coefficient annotation (``Double``) for each site from ``vds2`` ``va.info.InbreedingCoeff`` to ``vds`` ``va.info.other_InbreedingCoeff``:
+
+        >>> vds1 = vds.annotate_alleles_vds(vds2, 'va.info.other_InbreedingCoeff = vds.find(x => isDefined(x)).info.InbreedingCoeff')
+
+        Copy allele frequencies (``Array[Double]`` containing the allele frequency for each alternative allele) for each allele from
+        ``vds2`` ``va.info.AF`` to ``vds`` ``va.info.other_AF``:
+
+        >>> vds1 = vds.annotate_alleles_vds(vds2, 'va.info.other_AF = range(v.nAltAlleles).map(i => vds[i].info.AF[aIndices[i]])')
+
+        **Notes**
+
+        The ``code`` argument expects an annotation expression whose scope includes ``va``, the variant annotations in the current VDS,
+        and ``vds``, the variant annotations in other (one per allele).
+        This method matches alleles based on their position, allowing to annotate a VDS that is split or non-split with
+        another VDS that is split or non-split, as long as the allele representation is consistently aligned (e.g. GATK HaplotypeCaller alleles are all left-aligned).
+        The alleles at each position are matched between the VDSs.
+
+        ``code`` is in a variant context and the following symbols are in scope:
+
+           - ``v`` (*Variant*): :ref:`variant`
+           - ``va``: variant annotations
+           - ``vds`` (*Array*): variant annotations from ``other``. There is one entry for each allele in ``v``, entries contain ``NA`` if the allele was not found in ``other``.
+           - ``aIndices`` (*Array[Int]*): The mapping from the alt allele index in the VDS and those in ``other``. If the other VDS was split, the entries are ``0`` for alleles that match. There is one entry for each allele in ``v``, entries contain ``NA`` if the allele was not found in ``other``.
+           - ``global``: global annotations
+
+        :param VariantDataset other: Variant dataset to annotate with.
+        :param str code: Annotation expression.
+        :param bool match_star: Should you match star alleles
+        :return: Annotated variant dataset.
+        :rtype: :py:class:`.VariantDataset`
+        """
+
+        if isinstance(code, list):
+            code = ",".join(code)
+        jvds = self._jvdf.annotateAllelesVDS(other._jvds, code, match_star)
+        return VariantDataset(self.hc, jvds)
+
     @handle_py4j
     @record_method
     @typecheck_method(expr=oneof(strlike, listof(strlike)))
@@ -849,7 +897,10 @@ class VariantDataset(HistoryMixin):
         variants, so ignore any warnings Hail prints if you know that to be the
         case.  Otherwise, run :py:meth:`~hail.VariantDataset.split_multi` before :py:meth:`~hail.VariantDataset.annotate_variants_vds`.
 
-        :param :py:class:`~hail.VariantDataset` other: Variant dataset to annotate with.
+        If you want to annotate a VDS with multi-allelic variants without splitting it,
+        you should use :py:meth:`.annotate_alleles_vds` instead.
+
+        :param VariantDataset other: Variant dataset to annotate with.
 
         :param str root: Sample annotation path to add variant annotations.
 
@@ -883,37 +934,37 @@ class VariantDataset(HistoryMixin):
 
         >>> vds = vds.annotate_variants_db(['va.cadd.RawScore', 'va.cadd.PHRED']) # doctest: +SKIP
 
-        Annotate variants with gene-level PLI score, using the VEP-generated gene symbol to map variants to genes: 
+        Annotate variants with gene-level PLI score, using the VEP-generated gene symbol to map variants to genes:
 
         >>> pli_vds = vds.annotate_variants_db('va.gene.constraint.pli') # doctest: +SKIP
 
-        Again annotate variants with gene-level PLI score, this time using the existing ``va.gene_symbol`` annotation 
+        Again annotate variants with gene-level PLI score, this time using the existing ``va.gene_symbol`` annotation
         to map variants to genes:
 
         >>> vds = vds.annotate_variants_db('va.gene.constraint.pli', gene_key='va.gene_symbol') # doctest: +SKIP
 
         **Notes**
 
-        Annotations in the database are bi-allelic, so splitting multi-allelic variants in the VDS before using this 
-        method is recommended to capture all appropriate annotations from the database. To do this, run :py:meth:`split_multi` 
+        Annotations in the database are bi-allelic, so splitting multi-allelic variants in the VDS before using this
+        method is recommended to capture all appropriate annotations from the database. To do this, run :py:meth:`split_multi`
         prior to annotating variants with this method:
 
         >>> vds = vds.split_multi().annotate_variants_db(['va.cadd.RawScore', 'va.cadd.PHRED']) # doctest: +SKIP
 
-        To add VEP annotations, or to add gene-level annotations without a predefined gene symbol for each variant, the 
-        :py:meth:`~.VariantDataset.annotate_variants_db` method runs Hail's :py:meth:`~.VariantDataset.vep` method on the 
+        To add VEP annotations, or to add gene-level annotations without a predefined gene symbol for each variant, the
+        :py:meth:`~.VariantDataset.annotate_variants_db` method runs Hail's :py:meth:`~.VariantDataset.vep` method on the
         VDS. This means that your cluster must be properly initialized to run VEP.
 
         .. warning::
 
-            If you want to add VEP annotations to your VDS, make sure to add the initialization action 
+            If you want to add VEP annotations to your VDS, make sure to add the initialization action
             :code:`gs://hail-common/vep/vep/vep85-init.sh` when starting your cluster.
 
         :param annotations: List of annotations to import from the database.
-        :type annotations: str or list of str 
+        :type annotations: str or list of str
 
-        :param gene_key: Existing variant annotation used to map variants to gene symbols if importing gene-level 
-            annotations. If not provided, the method will add VEP annotations and parse them as described in the 
+        :param gene_key: Existing variant annotation used to map variants to gene symbols if importing gene-level
+            annotations. If not provided, the method will add VEP annotations and parse them as described in the
             database documentation to obtain one gene symbol per variant.
         :type gene_key: str
 
@@ -942,7 +993,7 @@ class VariantDataset(HistoryMixin):
         # parameter substitution string to put in SQL query
         like = ' OR '.join('a.annotation LIKE ?' for i in xrange(2*len(annotations)))
 
-        # query to extract path of all needed database files and their respective annotation exprs 
+        # query to extract path of all needed database files and their respective annotation exprs
         qry = """SELECT file_path, annotation, file_type, file_element, f.file_id
                  FROM files AS f INNER JOIN annotations AS a ON f.file_id = a.file_id
                  WHERE {}""".format(like)
@@ -1043,10 +1094,10 @@ class VariantDataset(HistoryMixin):
                     self
                     .annotate_variants_expr(
                         """
-                        va.gene.most_severe_consequence = 
+                        va.gene.most_severe_consequence =
                             let canonical_consequences = va.vep.transcript_consequences.filter(t => t.canonical == 1).flatMap(t => t.consequence_terms).toSet() in
                             if (isDefined(canonical_consequences))
-                                orElse(global.csq_terms.find(c => canonical_consequences.contains(c)), 
+                                orElse(global.csq_terms.find(c => canonical_consequences.contains(c)),
                                        va.vep.most_severe_consequence)
                             else
                                 va.vep.most_severe_consequence
@@ -1054,7 +1105,7 @@ class VariantDataset(HistoryMixin):
                     )
                     .annotate_variants_expr(
                         """
-                        va.gene.transcript = let tc = va.vep.transcript_consequences.filter(t => t.consequence_terms.toSet.contains(va.gene.most_severe_consequence)) in 
+                        va.gene.transcript = let tc = va.vep.transcript_consequences.filter(t => t.consequence_terms.toSet.contains(va.gene.most_severe_consequence)) in
                                              orElse(tc.find(t => t.canonical == 1), tc[0])
                         """
                     )
@@ -1279,10 +1330,10 @@ class VariantDataset(HistoryMixin):
         The model looks for de novo events in which both parents are homozygous
         reference and the proband is a heterozygous. The model makes the simplifying assumption that when this
         configuration ``x = (AA, AA, AB)`` of calls occurs, exactly one of the following is true:
-        
+
             - ``d`` = a de novo mutation occurred in the proband and all calls are true
             - ``m`` = at least one parental allele is truly non-reference and the proband call is true
-         
+
         We can then estimate the posterior probability of a de novo mutation as:
 
         .. math::
@@ -1601,13 +1652,13 @@ class VariantDataset(HistoryMixin):
         Hail exports the fields of Struct ``va.info`` as INFO fields,
         the elements of Set[String] ``va.filters`` as FILTERS,
         and the value of Float64 ``va.qual`` as QUAL. No other variant annotations are exported.
-        
-        The FORMAT field is generated from the genotype type, which must 
+
+        The FORMAT field is generated from the genotype type, which must
         be :py:class:`~hail.expr.TGenotype` or :py:class:`~hail.expr.TStruct`. If the type is
         :py:class:`~hail.expr.TGenotype`, then the FORMAT fields will be GT, AD, DP, GQ, and PL.
         If the type is :py:class:`~hail.expr.TStruct`,
         then the exported FORMAT fields will be the names of each field of the Struct.
-        
+
         INFO and FORMAT fields may be generated from Struct fields of type Call, Int32, Float32, Float64, or String.
         If a field has type Int64, every value must be a valid Int32.
         Arrays and Sets containing these types are also allowed but cannot be nested;
@@ -1801,7 +1852,7 @@ class VariantDataset(HistoryMixin):
         - ``va``: variant annotations
         - ``newToOld`` (*Array[Int]*): the array of old indices (such that ``newToOld[newIndex] = oldIndex`` and ``newToOld[0] = 0``)
 
-        :param str expr: Boolean filter expression involving ``v`` (variant), ``va`` (variant annotations), 
+        :param str expr: Boolean filter expression involving ``v`` (variant), ``va`` (variant annotations),
             and ``aIndex`` (allele index)
 
         :param str annotation: Annotation modifying expression involving ``v`` (old variant), ``newV`` (new variant), ``va`` (old variant annotations), and ``newToOld`` (maps from new to old indices).
@@ -2015,7 +2066,7 @@ class VariantDataset(HistoryMixin):
         >>> vds_filtered = vds.filter_samples_table(table, keep=True)
         
         Remove samples in a text file with 1 field, and no header:
-        
+
         >>> to_remove = hc.import_table('data/exclude_samples.txt', no_header=True).key_by('f0')
         >>> vds_filtered = vds.filter_samples_table(to_remove, keep=False)
         
@@ -2848,7 +2899,7 @@ class VariantDataset(HistoryMixin):
         ...        .select(['variant = v', 'va.lmmreg.*'])
         ...        .export('output/lmmreg.tsv.bgz')
         >>> lmmreg_results = lmm_vds.globals['lmmreg']
-        
+
         **Performance**
 
         Hail's initial version of :py:meth:`.lmmreg` scales beyond 15k samples and to an essentially unbounded number of variants, making it particularly well-suited to modern sequencing studies and complementary to tools designed for SNP arrays. Analysts have used :py:meth:`.lmmreg` in research to compute kinship from 100k common variants and test 32 million non-rare variants on 8k whole genomes in about 10 minutes on `Google cloud <http://discuss.hail.is/t/using-hail-on-the-google-cloud-platform/80>`__.
@@ -4671,7 +4722,7 @@ class VariantDataset(HistoryMixin):
           variant will be counted twice in that key's group. With ``single_key=True``, ``variant_keys`` expects a
           variant annotation whose value is itself the key of interest. In both cases, variants with missing keys are
           ignored.
-          
+
         .. caution::
 
           By default, the Davies algorithm iterates up to 10k times until an accuracy of 1e-6 is achieved.
@@ -4684,7 +4735,7 @@ class VariantDataset(HistoryMixin):
           To process a group with math:`m` variants, several copies of an math:`m \times m` matrix of doubles must fit
           in worker memory. Groups with tens of thousands of variants may exhaust worker memory causing the entire
           job to fail. In this case, use the ``max_size`` parameter to skip groups larger than ``max_size``.
-        
+
         **Notes**
 
         This method provides a scalable implementation of the score-based variance-component test originally described
@@ -4717,7 +4768,7 @@ class VariantDataset(HistoryMixin):
         +------+------+-------+-------+-------+
         | geneC|   3  | 4.122 | 0.192 |   0   |
         +------+------+-------+-------+-------+
-        
+
         Groups larger than ``max_size`` appear with missing ``qstat``, ``pval``, and ``fault``. The hard limit on the
         number of variants in a group is 46340.
 
@@ -4746,7 +4797,7 @@ class VariantDataset(HistoryMixin):
         +------+------+-----------------------------------------+
         |      5      | out of memory                           |
         +------+------+-----------------------------------------+
-                     
+
         :param str variant_keys: Variant annotation path for the Array or Set of keys associated to each variant.
 
         :param bool single_key: If true, ``variant_keys`` is interpreted as a single (or missing) key per variant,
@@ -4761,7 +4812,7 @@ class VariantDataset(HistoryMixin):
         :param covariates: List of covariate expressions.
         :type covariates: List of str
 
-        :param bool logistic: If true, use the logistic test rather than the linear test. 
+        :param bool logistic: If true, use the logistic test rather than the linear test.
 
         :param int max_size: Maximum size of group on which to run the test.
 
@@ -5334,22 +5385,22 @@ class VariantDataset(HistoryMixin):
                       root=strlike)
     def nirvana(self, config, block_size=500000, root='va.nirvana'):
         """Annotate variants using `Nirvana <https://github.com/Illumina/Nirvana>`_.
-        
+
         .. include:: _templates/experimental.rst
-        
+
         .. include:: _templates/req_tvariant.rst
 
         :py:meth:`~hail.VariantDataset.nirvana` runs `Nirvana <https://github.com/Illumina/Nirvana>`_ on the current
         variant dataset and adds the result as a variant annotation.
 
-        **Examples**        
+        **Examples**
 
         Add Nirvana annotations to the dataset:
 
         >>> vds_result = vds.nirvana("data/nirvana.properties") # doctest: +SKIP
 
         ***Configuration***
-        
+
         :py:meth:`~hail.VariantDataset.nirvana` requires a configuration file. The format is a
         `.properties file <https://en.wikipedia.org/wiki/.properties>`__, where each line defines
         a property as a key-value pair of the form `key = value`. ``nirvana`` supports the following properties:
@@ -5360,22 +5411,22 @@ class VariantDataset(HistoryMixin):
         - **hail.nirvana.reference** --Location of reference genome. Required.
         - **hail.nirvana.cache** --Location of cache. Required.
         - **hail.nirvana.supplementaryAnnotationDirectory** -- Location of Supplementary Database. Optional, no supplementary database by default.
-        
+
         Here is an example `nirvana.properties` configuration file:
 
         .. code-block:: text
-        
+
             hail.nirvana.location = /path/to/dotnet/netcoreapp1.1/Nirvana.dll
             hail.nirvana.reference = /path/to/nirvana/References/Homo_sapiens.GRCh37.Nirvana.dat
             hail.nirvana.cache = /path/to/nirvana/Cache/GRCh37/Ensembl84
             hail.nirvana.supplementaryAnnotationDirectory = /path/to/nirvana/SupplementaryDatabase/GRCh37
-        
+
         **Annotations**
 
         Annotations with the following schema are placed in the location specified by ``root``.
 
         .. code-block:: text
-        
+
             Struct{
               chromosome: String,
               refAllele: String,
@@ -5559,7 +5610,7 @@ class VariantDataset(HistoryMixin):
 
         :param str config: Path to Nirvana configuration file.
 
-        :param int block_size: Number of variants to annotate per Nirvana invocation. 
+        :param int block_size: Number of variants to annotate per Nirvana invocation.
 
         :param str root: Variant annotation path to store Nirvana output.
 
