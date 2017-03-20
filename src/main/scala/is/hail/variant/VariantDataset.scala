@@ -11,7 +11,7 @@ import is.hail.io.plink.ExportBedBimFam
 import is.hail.io.vcf.{BufferedLineIterator, ExportVCF}
 import is.hail.keytable.KeyTable
 import is.hail.methods._
-import is.hail.sparkextras.{OrderedPartitioner, OrderedRDD}
+import is.hail.sparkextras.{OrderedKeyFunction, OrderedPartitioner, OrderedRDD}
 import is.hail.utils._
 import is.hail.variant.Variant.orderedKey
 import org.apache.hadoop
@@ -28,6 +28,7 @@ import scala.collection.mutable
 import scala.io.Source
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
+import scala.util.Random
 
 object VariantDataset {
   def read(hc: HailContext, dirname: String,
@@ -364,6 +365,132 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
           inserter(va, annotations.map(_ (i)).toArray[Any]: IndexedSeq[Any])
       }
 
+    }.copy(vaSignature = finalType)
+  }
+
+  def annotateAllelesVDS(other: VariantDataset, code: String, matchStar: Boolean = true) : VariantDataset = {
+    import LocusImplicits.orderedKey
+
+    val locusRDD = other.rdd.mapMonotonic(OrderedKeyFunction(_.locus), { case (v, (va,gs)) => (v, va) })
+
+    val locusAltAlleleRDD = if (other.wasSplit) {
+      OrderedRDD(locusRDD.mapPartitions { case it =>
+        new SortedCombineLocusIterator(it.map{
+          case(l,(v,va)) => (l,(v.altAllele,va))
+        })
+      }, locusRDD.orderedPartitioner)
+    }
+    else
+      locusRDD.mapValues{
+        case (v,va) =>
+        v.altAlleles.map((_,va))
+      }.asOrderedRDD
+
+    val localGlobalAnnotation = vds.globalAnnotation
+
+    val ec = EvalContext(Map(
+      "global" -> (0, vds.globalSignature),
+      "v" -> (1, TVariant),
+      "va" -> (2, vds.vaSignature),
+      "vds" -> (3, TArray(other.vaSignature)),
+      "aIndices" -> (4, TArray(TInt))
+    ))
+
+    val (paths, types, f) = Parser.parseAnnotationExprs(code, ec, Some(Annotation.VARIANT_HEAD))
+
+    val inserterBuilder = mutable.ArrayBuilder.make[Inserter]
+    val finalType = (paths, types).zipped.foldLeft(vds.vaSignature) { case (vas, (ids, signature)) =>
+      val (s, i) = vas.insert(signature, ids)
+      inserterBuilder += i
+      s
+    }
+    val inserters = inserterBuilder.result()
+
+    val newRDD = vds.rdd
+      .mapMonotonic(OrderedKeyFunction(_.locus), { case (v, vags) => (v, vags) })
+      .orderedLeftJoinDistinct(locusAltAlleleRDD)
+      .map {
+        case (l, ((v, (va, gs)), altAllelesAndAnnotations)) =>
+        val aIndices = Array.ofDim[Any](v.nAltAlleles)
+        val annotations = Array.ofDim[Annotation](v.nAltAlleles)
+
+        altAllelesAndAnnotations.map(x => x.zipWithIndex.foreach{
+          case ((allele, ann), oldIndex) =>
+            if(matchStar || allele.alt != "*") {
+              val newIndex = v.altAlleleIndex(allele)
+              if (newIndex > -1) {
+                aIndices.update(newIndex, oldIndex)
+                annotations.update(newIndex, ann)
+              }
+            }
+        })
+          ec.setAll(localGlobalAnnotation, v, va, annotations: IndexedSeq[Annotation], aIndices: IndexedSeq[Annotation])
+          val newVA = f().zip(inserters).foldLeft(va) { case (va, (ann, inserter)) => inserter(va, ann) }
+        (v, (newVA, gs))
+      }
+
+    // we safely use the non-shuffling apply method of OrderedRDD because orderedLeftJoinDistinct preserves the
+    // (Variant) ordering of the left RDD
+    val orderedRDD = OrderedRDD(newRDD, vds.rdd.orderedPartitioner)
+    vds.copy(rdd = orderedRDD, vaSignature = finalType)
+  }
+
+  def annotateSamplesExpr(expr: String): VariantDataset = {
+    val ec = Aggregators.sampleEC(vds)
+
+    val (paths, types, f) = Parser.parseAnnotationExprs(expr, ec, Some(Annotation.SAMPLE_HEAD))
+
+    val inserterBuilder = mutable.ArrayBuilder.make[Inserter]
+    val finalType = (paths, types).zipped.foldLeft(vds.saSignature) { case (sas, (ids, signature)) =>
+      val (s, i) = sas.insert(signature, ids)
+      inserterBuilder += i
+      s
+    }
+    val inserters = inserterBuilder.result()
+
+    val sampleAggregationOption = Aggregators.buildSampleAggregations(vds, ec)
+
+    ec.set(0, vds.globalAnnotation)
+    val newAnnotations = vds.sampleIdsAndAnnotations.map { case (s, sa) =>
+      sampleAggregationOption.foreach(f => f.apply(s))
+      ec.set(1, s)
+      ec.set(2, sa)
+      f().zip(inserters)
+        .foldLeft(sa) { case (sa, (v, inserter)) =>
+          inserter(sa, v)
+        }
+    }
+
+    vds.copy(
+      sampleAnnotations = newAnnotations,
+      saSignature = finalType
+    )
+  }
+
+  def annotateVariantsExpr(expr: String): VariantDataset = {
+    val localGlobalAnnotation = vds.globalAnnotation
+
+    val ec = Aggregators.variantEC(vds)
+    val (paths, types, f) = Parser.parseAnnotationExprs(expr, ec, Some(Annotation.VARIANT_HEAD))
+
+    val inserterBuilder = mutable.ArrayBuilder.make[Inserter]
+    val finalType = (paths, types).zipped.foldLeft(vds.vaSignature) { case (vas, (ids, signature)) =>
+      val (s, i) = vas.insert(signature, ids)
+      inserterBuilder += i
+      s
+    }
+    val inserters = inserterBuilder.result()
+
+    val aggregateOption = Aggregators.buildVariantAggregations(vds, ec)
+
+    vds.mapAnnotations { case (v, va, gs) =>
+      ec.setAll(localGlobalAnnotation, v, va)
+
+      aggregateOption.foreach(f => f(v, va, gs))
+      f().zip(inserters)
+        .foldLeft(va) { case (va, (v, inserter)) =>
+          inserter(va, v)
+        }
     }.copy(vaSignature = finalType)
   }
 

@@ -330,6 +330,14 @@ class VariantDataset(object):
         jvds = self._jvdf.annotateAllelesExpr(expr, propagate_gq)
         return VariantDataset(self.hc, jvds)
 
+
+    @handle_py4j
+    def annotate_alleles_vds(self, vds, code, match_star = True):
+        if isinstance(code, list):
+            expr = ",".join(code)
+        jvds = self._jvdf.annotateAllelesVDS(vds._jvds, code, match_star)
+        return VariantDataset(self.hc, jvds)
+
     @handle_py4j
     def annotate_global_expr(self, expr):
         """Annotate global with expression.
