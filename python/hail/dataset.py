@@ -334,7 +334,7 @@ class VariantDataset(object):
     @handle_py4j
     def annotate_alleles_vds(self, vds, code, match_star = True):
         if isinstance(code, list):
-            expr = ",".join(code)
+            code = ",".join(code)
         jvds = self._jvdf.annotateAllelesVDS(vds._jvds, code, match_star)
         return VariantDataset(self.hc, jvds)
 
