@@ -5016,8 +5016,8 @@ class VariantDataset(HistoryMixin):
         self._jvds.typecheck()
 
     @handle_py4j
-    def union(self, other_vdses):
-        jvds = self._jvds.union(jindexed_seq([x._jvds for x in other_vdses]))
+    def union(self, other_vdses, merge_schemas):
+        jvds = self._jvds.union(jindexed_seq([x._jvds for x in other_vdses]), merge_schemas)
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j
