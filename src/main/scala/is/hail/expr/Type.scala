@@ -1607,7 +1607,28 @@ object TStruct {
       (!t).asInstanceOf[TStruct]
     else t
   }
-}
+
+  def mergeTStructs(structs: Array[TStruct]) : (TStruct, Array[Deleter]) = {
+
+    def mergeTwoStructs(struct1: TStruct, struct2: TStruct): TStruct = {
+      val updatedFields = (struct1.fields.map {
+        f =>
+          struct2.fieldIdx.get(f.name) match {
+            case (Some(i)) =>
+              (f.typ, struct2.fields(i).typ) match {
+                case (s1: TStruct, s2: TStruct) => f.copy(typ = mergeTwoStructs(s1,s2))
+                case (t1, t2) =>
+                  if (t1 != t2)
+                    fatal(s"Conflicting field types $t1, $t2 for field ${ f.name } when trying to merge Structs. ")
+                  f
+              }
+            case None =>
+              f
+          }
+      } ++ struct2.fields.filter(f => !struct1.fieldIdx.contains(f.name))
+        )
+        .zipWithIndex
+        .map{ case(f,i) => f.copy(index = i) }
 
 final case class TStruct(fields: IndexedSeq[Field], override val required: Boolean = false) extends Type {
   assert(fields.zipWithIndex.forall { case (f, i) => f.index == i })
