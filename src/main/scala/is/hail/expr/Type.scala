@@ -803,7 +803,7 @@ object TStruct {
   def mergeTStructs(structs: Array[TStruct]) : (TStruct, Array[Deleter]) = {
 
     def mergeTwoStructs(struct1: TStruct, struct2: TStruct): TStruct = {
-      val updatedFields = struct1.fields.map {
+      val updatedFields = (struct1.fields.map {
         f =>
           struct2.fieldIdx.get(f.name) match {
             case (Some(i)) =>
@@ -818,6 +818,9 @@ object TStruct {
               f
           }
       } ++ struct2.fields.filter(f => !struct1.fieldIdx.contains(f.name))
+        )
+        .zipWithIndex
+        .map{ case(f,i) => f.copy(index = i) }
 
       TStruct(fields = updatedFields)
     }
