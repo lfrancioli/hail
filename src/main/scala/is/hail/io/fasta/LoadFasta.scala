@@ -18,7 +18,7 @@ object LoadFasta {
     create_deletion_size: Int = 0,
     create_insertion_size : Int = 0,
     flanking_context: Int = 0,
-    line_limit: Int = 5000) : VariantDataset = {
+    line_limit: Int = 150000) : VariantDataset = {
 
     if(line_limit < flanking_context)
       fatal("Import fasta does not support flanking context larger than the fasta sequence line length.")
@@ -116,27 +116,59 @@ object LoadFasta {
     }
 
 
-    info("Creating VDS")
+    val contigsbc = sc.broadcast(contigs)
 
-    val rdd = sc.parallelize(contigs)
-      .flatMap({
-        case (contig, pos, seq, left_flank, right_flank) =>
-          val padded_seq = left_flank + seq + right_flank
-          Range(left_flank.length, left_flank.length + seq.length)
-            .filter(!filter_Ns || padded_seq(_) != 'N')
-            .map({
-              i =>
-                val max_del_size = Math.min(padded_seq.length - i - 1, create_deletion_size)
-                if (flanking_context < 1 || i < flanking_context || i > padded_seq.length - flanking_context -1)
-                  (getVariant(contig, pos + i - left_flank.length, padded_seq,i, max_del_size ),
-                    (Annotation(null), Iterable.empty[Genotype]))
-                else
-                  (getVariant(contig, pos + i - left_flank.length, padded_seq,i, max_del_size),
-                    (Annotation(padded_seq.substring(i - flanking_context, i + flanking_context + 1)),
-                      Iterable.empty[Genotype])
-                    )
-            })
-      })
+    val chunks = (0 until contigs.length).sliding(50,50).toSeq
+
+    info(s"Creating VDS with ${chunks.length} partitions")
+
+    val rdd = sc.parallelize(chunks, numSlices = chunks.length)
+        .mapPartitions{
+          it =>
+            it.flatMap{
+              indices =>
+                indices.flatMap {
+                  i =>
+                    val (contig, pos, seq, left_flank, right_flank) = contigsbc.value(i)
+                    val padded_seq = left_flank + seq + right_flank
+                    Range(left_flank.length, left_flank.length + seq.length)
+                      .filter(!filter_Ns || padded_seq(_) != 'N')
+                      .map {
+                        i =>
+                          val max_del_size = Math.min(padded_seq.length - i - 1, create_deletion_size)
+                          if (flanking_context < 1 || i < flanking_context || i > padded_seq.length - flanking_context - 1)
+                            (getVariant(contig, pos + i - left_flank.length, padded_seq, i, max_del_size),
+                              (Annotation(null), Iterable.empty[Genotype]))
+                          else
+                            (getVariant(contig, pos + i - left_flank.length, padded_seq, i, max_del_size),
+                              (Annotation(padded_seq.substring(i - flanking_context, i + flanking_context + 1)),
+                                Iterable.empty[Genotype])
+                            )
+                      }
+                }
+            }
+        }
+
+//      .flatMap(indices => indices)
+//      .flatMap {
+//            i =>
+//              val (contig, pos, seq, left_flank, right_flank) = contigsbc.value(i)
+//              val padded_seq = left_flank + seq + right_flank
+//              Range(left_flank.length, left_flank.length + seq.length)
+//                .filter(!filter_Ns || padded_seq(_) != 'N')
+//                .map {
+//                  i =>
+//                    val max_del_size = Math.min(padded_seq.length - i - 1, create_deletion_size)
+//                    if (flanking_context < 1 || i < flanking_context || i > padded_seq.length - flanking_context - 1)
+//                      (getVariant(contig, pos + i - left_flank.length, padded_seq, i, max_del_size),
+//                        (Annotation(null), Iterable.empty[Genotype]))
+//                    else
+//                      (getVariant(contig, pos + i - left_flank.length, padded_seq, i, max_del_size),
+//                        (Annotation(padded_seq.substring(i - flanking_context, i + flanking_context + 1)),
+//                          Iterable.empty[Genotype])
+//                      )
+//                }
+//      }
 
     val vaSignature = if(flanking_context > 0)
       TStruct(
