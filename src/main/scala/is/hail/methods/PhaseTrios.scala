@@ -359,7 +359,7 @@ object PhaseTrios {
   }
 
 
-  def apply(trioVDS: VariantDataset, exacVDS: VariantDataset , ped: Pedigree, gene_annotation: String, output: String, number_partitions: Int,
+  def apply(trioVDS: VariantDataset, referenceVDS: VariantDataset , ped: Pedigree, gene_annotation: String, output: String, number_partitions: Int,
     variantAnnotations: Array[String] = Array[String](), sampleAnnotations: Array[String] = Array[String](),
     run_coseg : Boolean, run_em: Boolean) = {
 
@@ -369,22 +369,11 @@ object PhaseTrios {
     //Get annotations
     val triosGeneAnn = trioVDS.queryVA(gene_annotation)._2
 
-    //List individuals from trios where all family members are present
-    //In case of multiple offspring, keep only one
-    val samplesInTrios = ped.completeTrios.foldLeft(Set[String]())({case (acc,trio) => acc ++ Set(trio.mom.get,trio.dad.get,trio.kid)})
-
     val partitioner = new HashPartitioner(number_partitions)
 
-     //Keep only relevant SA and VA
-    /**val (newVAS, vaDeleter) = state.vds.vaSignature.asInstanceOf[TStruct].filter(variantAnnotations.toSet + options.gene_annotation)
-    trioVDS = if(trioVDS.saSignature.isInstanceOf[TStruct] && !variantAnnotations.isEmpty){
-      val (newSAS, saDeleter) = state.vds.saSignature.asInstanceOf[TStruct].filter(variantAnnotations.toSet)
-      trioVDS.copy(saSignature = newSAS,
-        sampleAnnotations = state.vds.sampleAnnotations.map(a => saDeleter(a)),
-        vaSignature = newVAS).mapAnnotations({case(v,va,gs) => vaDeleter(va)})
-    } else {
-      trioVDS.copy(vaSignature = newVAS).mapAnnotations({case(v,va,gs) => vaDeleter(va)})
-    }**/
+    val ped_in_vds = ped.filterTo(trioVDS.sampleIds.toSet).completeTrios
+
+    info(s"Found ${ped_in_vds.length} complete trios in VDS.")
 
     val triosRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(trioVDS, sc , partitioner)(
       {case (v,va) => triosGeneAnn(va).toString}
@@ -401,7 +390,7 @@ object PhaseTrios {
     )
 
 
-    info(triosRDD.map({
+    log.debug(triosRDD.map({
       case(gene,vs) => ("Gene: %s\tnVariantPairs: %d").format(gene,vs.variantPairs.size)
     }).collect().mkString("\n"))
 
@@ -409,37 +398,21 @@ object PhaseTrios {
 
     val bcUniqueVariants = sc.broadcast(uniqueVariants)
 
-    //Load ExAC VDS, filter common samples and sites based on exac condition (AC)
-        val exacGeneAnn = exacVDS.queryVA(gene_annotation)._2
+    //Only keep variants that are in the trios
+    def variantsOfInterestFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => bcUniqueVariants.value.contains(v.toString)}
 
-    //Only keep variants that are of interest and have a gene annotation (although they should match those of trios!)
-    def variantsOfInterestFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => exacGeneAnn(va) != null && bcUniqueVariants.value.contains(v.toString)}
-
-    //val (exACnewVAS, exACvaDeleter) = exacVDS.vaSignature.asInstanceOf[TStruct].filter(Set(options.gene_annotation))
-    /**val filteredExAC = if(exacVDS.saSignature.isInstanceOf[TStruct]){
-      val (exACnewSAS, saDeleter) = exacVDS.saSignature.asInstanceOf[TStruct].filter(Set.empty[String])
-      exacVDS.copy(saSignature = exACnewSAS,
-        sampleAnnotations = exacVDS.sampleAnnotations.map(a => saDeleter(a)),
-        vaSignature = exACnewVAS)
-        .mapAnnotations({case(v,va,gs) => vaDeleter(va)})
-        .filterVariants(variantsOfInterestFilter)
-        .filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s))
-    } else {
-      exacVDS.copy(vaSignature = exACnewVAS)
-        .mapAnnotations({case(v,va,gs) => vaDeleter(va)})
-        .filterVariants(variantsOfInterestFilter)
-        .filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s))
-    }**/
-
-    val filteredExAC = exacVDS
+    val filteredReference = referenceVDS
       .filterVariants(variantsOfInterestFilter)
       .filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s))
+      .annotateVariantsVDS(trioVDS, root = None, code = Some("va.gene = vds.gene"))
 
-    val exacRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(filteredExAC, sc, partitioner)(
-      {case (v,va) => exacGeneAnn(va).toString}
+    val referenceGeneAnn = filteredReference.queryVA("va.gene")
+
+    val referenceRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(filteredReference, sc, partitioner)(
+      {case (v,va) => referenceGeneAnn._2(va).toString}
     )
 
-    val callsByGene = triosRDD.join(exacRDD,partitioner)
+    val callsByGene = triosRDD.join(referenceRDD,partitioner)
 
     //write results
     new RichRDD(callsByGene.map(
