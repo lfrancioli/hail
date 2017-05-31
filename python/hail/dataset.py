@@ -4920,6 +4920,35 @@ class VariantDataset(object):
         return VariantDataset(self.hc, self._jvds.setVaAttributes(ann_path, Env.jutils().javaMapToMap(attributes)))
 
     @handle_py4j
+    @typecheck_method(reference_vds=anytype,
+                      pedigree=Pedigree,
+                      gene_ann=strlike,
+                      output=strlike,
+                      num_partitions=integral,
+                      va_strat=oneof(strlike, listof(strlike)),
+                      sa_strat=oneof(strlike, listof(strlike)),
+                      run_coseg=bool,
+                      run_em=bool)
+    def phase_trios(self, reference_vds, pedigree, gene_ann, output, num_partitions, va_strat = '', sa_strat = '', run_coseg = False, run_em = True):
+        """
+        Computes statistics on variant phasing in trios using transmission vs using reference data (e.g. gnomAD)
+
+        :param reference_vds: reference dataset to use for statistical phasing
+        :type reference_vds: :py:class:`hail.VariantDataset`
+        :param pedigree: Sample pedigree.
+        :type pedigree: :class:`~hail.representation.Pedigree`
+        :param str gene_ann: gene annotation root
+        :param str output: output file
+        :param int num_partitions: Number of partitions for svsm
+        :param str or list of str va_strat: variant annotation stratification
+        :param str or list of str sa_strat: sample annotation stratification
+        :param bool run_coseg: run co-seggregation algorithm
+        :param bool run_em: run EM algorithm
+        """
+
+        self._jvdf.phaseTrios(reference_vds._jvds, pedigree._jrep, gene_ann, output, num_partitions, va_strat, sa_strat, run_coseg, run_em)
+
+    @handle_py4j
     @typecheck_method(ann_path=strlike,
                       attribute=strlike)
     def delete_va_attribute(self, ann_path, attribute):
