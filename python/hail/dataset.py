@@ -4949,6 +4949,34 @@ class VariantDataset(object):
         self._jvdf.phaseTrios(reference_vds._jvds, pedigree._jrep, gene_ann, output, num_partitions, va_strat, sa_strat, run_coseg, run_em)
 
     @handle_py4j
+    @typecheck_method(keys=oneof(strlike, listof(strlike)),
+                      num_partitions=integral)
+    def phase_em(self, keys, num_partitions):
+        """
+
+        Splits the data based on the key(s) (e.g. gene), and for each portion of the data computes
+        the inferred phase between each pair of variants present in at least a sample.
+
+        :param str or list of str keys: The keys for partitioning the data (e.g. gene)
+        :param int num_partitions: The number of partitions for the resulting Keytable
+        :return: A KeyTable keyed by the input keys and with values:
+             - variant1
+             - variant2
+              - list of samples carrying variant 1 but not variant 2
+              - list of samples carrying variant 1 and 2
+              - list of samples carrying variant 2 but not variant 1
+              - estimated number of haplotypes for AB, Ab, aB, ab
+              - probability of both variants being on the same haplotype
+        :rtype: KeyTable
+        """
+
+        if isinstance(keys, list):
+            keys = ','.join(keys)
+
+        KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions))
+
+
+    @handle_py4j
     @typecheck_method(ann_path=strlike,
                       attribute=strlike)
     def delete_va_attribute(self, ann_path, attribute):
