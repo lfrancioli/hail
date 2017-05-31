@@ -25,7 +25,21 @@ object Phasing {
     * @return The probability of both variants being on the same haplotype
     */
   def probOnSameHaplotypeWithEM(genotypeCounts : Vector[Int]) : Option[Double] = {
-    phaseVariantPairWithEM(genotypeCounts) match{
+    probOnSameHaplotypeWithEM(phaseVariantPairWithEM(genotypeCounts))
+  }
+
+  /** Computes the probability of 2 variants being on the same haplotype
+    * using the EM from phaseVariantPairWithEM
+    *
+    * @param haplotypeCounts The estimated haplotype counts for the 9 possible genotype combination between the 2 variants:
+    *         AB (no variants)
+    *         Ab (variant b only)
+    *         aB (variant a only)
+    *         ab (both variants)
+    * @return The probability of both variants being on the same haplotype
+    */
+  def probOnSameHaplotypeWithEM(haplotypeCounts : Option[DenseVector[Double]]) : Option[Double] = {
+    haplotypeCounts match{
       case Some(haplotypes) =>
         return Some(haplotypes(0) * haplotypes(3) / (haplotypes(1) * haplotypes(2) + haplotypes(0) * haplotypes(3)))
       case None => None
@@ -36,7 +50,7 @@ object Phasing {
     * Maximum-Likelihood  Estimation  of Molecular  Haplotype  Frequencies  in a Diploid  Population
     * Escoffier & Slatkin, Mol. Biol. Evol. 1995
     *
-    * @param gtCounts The genotype counts for the 9 possible genotype combination between the 2 variants:
+    * @param gtCounts The genotype counts for the 4 possible haplotypes given bi-allelic variants Aa and Bb:
     *                       HomRef / HomRef
     *                       Het / HomRef
     *                       HomVar / HomRef
