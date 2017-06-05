@@ -4973,7 +4973,7 @@ class VariantDataset(object):
         if isinstance(keys, list):
             keys = ','.join(keys)
 
-        KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions))
+        return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions))
 
 
     @handle_py4j

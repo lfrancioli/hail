@@ -171,7 +171,7 @@ object PhaseTrios {
       i => saQueriers(i) = trios.querySA(saStrat(i))
     })
 
-    val variantPairs = (for(trio <- ped.completeTrios) yield{
+    val variantPairs = (for(trio <- ped.filterTo(trios.sampleIDs.toSet).completeTrios) yield{
 
       //Get the sample annotations for the kid as a string
       //For now rely on toString(). Later might need binning by type
@@ -371,7 +371,7 @@ object PhaseTrios {
 
     val partitioner = new HashPartitioner(number_partitions)
 
-    val ped_in_vds = ped.filterTo(trioVDS.sampleIds.toSet).completeTrios
+    val ped_in_vds = ped.filterTo(trioVDS.sampleIds.map(_.asInstanceOf[String]).toSet).completeTrios
 
     info(s"Found ${ped_in_vds.length} complete trios in VDS.")
 
@@ -390,7 +390,7 @@ object PhaseTrios {
     )
 
 
-    log.debug(triosRDD.map({
+    info(triosRDD.map({
       case(gene,vs) => ("Gene: %s\tnVariantPairs: %d").format(gene,vs.variantPairs.size)
     }).collect().mkString("\n"))
 
@@ -401,12 +401,25 @@ object PhaseTrios {
     //Only keep variants that are in the trios
     def variantsOfInterestFilter = {(v: Variant, va: Annotation, gs: Iterable[Genotype]) => bcUniqueVariants.value.contains(v.toString)}
 
+
+    trioVDS.typecheck()
+    info("trioVDS typechecked!")
+
+    referenceVDS.typecheck()
+    info("reference VDS typechecked!")
+
     val filteredReference = referenceVDS
       .filterVariants(variantsOfInterestFilter)
-      .filterSamples((s: String, sa: Annotation) => !trioVDS.sampleIds.contains(s))
-      .annotateVariantsVDS(trioVDS, root = None, code = Some("va.gene = vds.gene"))
+      .annotateVariantsVDS(trioVDS, code = Some(s"$gene_annotation = vds.${gene_annotation.substring(3)}"))
 
-    val referenceGeneAnn = filteredReference.queryVA("va.gene")
+    filteredReference.typecheck()
+    info("filteredReference typechecked!")
+
+    val variants = filteredReference.queryVariants("variants.map(v => isDefined(va.gene)).counter()")
+
+    info(variants._1.toString())
+
+    val referenceGeneAnn = filteredReference.queryVA(gene_annotation)
 
     val referenceRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(filteredReference, sc, partitioner)(
       {case (v,va) => referenceGeneAnn._2(va).toString}
@@ -414,14 +427,19 @@ object PhaseTrios {
 
     val callsByGene = triosRDD.join(referenceRDD,partitioner)
 
-    //write results
-    new RichRDD(callsByGene.map(
-      {case(gene,(trios,exac)) =>
+    val results = callsByGene.map{
+      case(gene,(trios,exac)) =>
         val now = System.nanoTime
         trios.addExac(exac,run_coseg,run_em)
         info("Gene %s phasing done in %.1f seconds.".format(gene,(System.nanoTime - now) / 10e9))
         trios.toString(gene)
-      })).writeTable(output, trioVDS.hc.tmpDir,header = Some("gene\t" + VariantPairsCounter.getHeaderString(run_coseg, run_em, variantAnnotations, sampleAnnotations)))
+      }.filter(s => !s.isEmpty).persist(StorageLevel.MEMORY_AND_DISK)
+
+    info(s"Found ${results.count()} resulting genes containing variant pair results.")
+
+    //write results
+    results.writeTable(output, trioVDS.hc.tmpDir,
+      header = Some("gene\t" + VariantPairsCounter.getHeaderString(run_coseg, run_em, variantAnnotations, sampleAnnotations)))
 
   }
 }

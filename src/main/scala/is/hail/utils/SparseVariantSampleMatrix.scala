@@ -24,7 +24,7 @@ object SparseVariantSampleMatrixRRDBuilder {
     mapOp: (Variant, Annotation)  => K)(implicit uct: ClassTag[K]): RDD[(K, SparseVariantSampleMatrix)] = {
 
     //Broadcast sample IDs
-    val bcSampleIds = sc.broadcast(vsm.sampleIds)
+    val bcSampleIds = sc.broadcast(vsm.sampleIds.map(_.asInstanceOf[String]))
 
     //Broadcast sample annotations
     val sa = sc.broadcast(vsm.saSignature,vsm.sampleAnnotations)
@@ -59,7 +59,7 @@ object SparseVariantSampleMatrixRRDBuilder {
     mapOp: (Variant, Annotation)  => K, saMapOp: Annotation => K2)(implicit uct: ClassTag[K]): RDD[((K,K2), SparseVariantSampleMatrix)] = {
 
     //Broadcast sample IDs
-    val bcSampleIds = sc.broadcast(vsm.sampleIds)
+    val bcSampleIds = sc.broadcast(vsm.sampleIds.map(_.asInstanceOf[String]))
 
     //Broadcast sample annotations
     val sa = sc.broadcast(vsm.saSignature,vsm.sampleAnnotations)
@@ -304,6 +304,10 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
     }
   }
 
+  def getSampleAnnotations(sampleID: String) : Annotation = {
+    sampleAnnotations(samplesIndex(sampleID))
+  }
+
   def getVariantAnnotation(variantID: String, annotation: String) : Option[Any] = {
     getVariantAnnotation(variantsIndex(variantID), queryVA(annotation)._2)
   }
@@ -318,6 +322,10 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
       case null => None
       case x => Some(x)
     }
+  }
+
+  def getVariantAnnotations(variantID: String) : Annotation = {
+    variantsAnnotations(variantsIndex(variantID))
   }
 
   //Applies an operation on each sample
