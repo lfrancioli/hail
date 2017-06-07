@@ -68,15 +68,20 @@ object PhaseEM {
             val haplotypeCounts = Phasing.phaseVariantPairWithEM(svm.getGenotypeCounts(v1, v2))
 
             val v1_samples = svm.getVariant(v1).filter(_._2.isHet).keys.toSet
-            val v2_samples = svm.getVariant(v1).filter(_._2.isHet).keys.toSet
+            val v2_samples = svm.getVariant(v2).filter(_._2.isHet).keys.toSet
 
             v1_samples.intersect(v2_samples).map {
               case sample =>
+
+                val va = Variant.parse(v1)
+                val vb = Variant.parse(v2)
+                val switch = va.compare(vb) > 0
+
                 (key,
-                  Variant.parse(v1),
-                  svm.getVariantAnnotations(v1),
-                  Variant.parse(v2),
-                  svm.getVariantAnnotations(v2),
+                  if (switch) vb else va,
+                  if (switch) svm.getVariantAnnotations(v2) else svm.getVariantAnnotations(v1),
+                  if (switch) va else vb,
+                  if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
                   sample,
                   svm.getSampleAnnotations(sample),
                   haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null),

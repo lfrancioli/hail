@@ -4977,6 +4977,24 @@ class VariantDataset(object):
 
 
     @handle_py4j
+    @typecheck_method(ped=Pedigree,
+                      gene=strlike,
+                      num_partitions=integral)
+    def phase_by_transmission(self, ped, gene, num_partitions):
+        """
+
+        For each gene, returns every pair of variants / trio that could be phased by transmission.
+
+        :param Pedigree ped:
+        :param str gene:
+        :param int num_partitions:
+        :return: KeyTable
+        :rtype: KeyTable
+        """
+
+        return KeyTable(self.hc, self._jvdf.phaseByTransmission(ped._jrep, gene, num_partitions))
+
+    @handle_py4j
     @typecheck_method(ann_path=strlike,
                       attribute=strlike)
     def delete_va_attribute(self, ann_path, attribute):

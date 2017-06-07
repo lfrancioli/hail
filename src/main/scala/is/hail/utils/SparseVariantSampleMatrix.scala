@@ -387,7 +387,7 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
   def getExistingVariantPairs() : Set[(String,String)] = {
 
     //Stores whether each variant pair was observed
-    val result = mutable.HashSet[(String,String)]()
+    val result = mutable.HashSet[(Int,Int)]()
 
     //Go through each of the samples and fill the matrix
     if(s_vindices.isEmpty){ buildSampleView() }
@@ -409,11 +409,11 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
         s_variants.indices.foreach({
           v1i =>
             Range(v1i+1,s_variants.size).foreach({
-              v2 => result.add(variants(s_variants(v1i)),variants(s_variants(v2)))
+              v2i => result.add(s_variants(v1i),s_variants(v2i))
             })
         })
     })
-    result.toSet
+    result.toSet.map{case (v1i, v2i) => (variants(v1i), variants(v2i))}
   }
 
 

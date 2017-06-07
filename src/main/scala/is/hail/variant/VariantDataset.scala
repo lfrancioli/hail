@@ -694,7 +694,7 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     KinshipMatrix(vds.hc, vds.sSignature, rrm, vds.stringSampleIds.toArray, m)
   }
 
-  def phaseEM(key: String, num_partitions: Int) = {
+  def phaseEM(key: String, num_partitions: Int) : KeyTable = {
     val keys = key.split(",")
     PhaseEM(vds, keys, num_partitions)
   }
@@ -704,6 +704,10 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     val va = if(!variant_annotations.isEmpty) variant_annotations.split(",") else Array[String]()
     val sa = if(!sample_annotations.isEmpty) sample_annotations.split(",") else Array[String]()
     PhaseTrios(vds, referenceVDS, ped, gene_annotation, output, num_partitions, va, sa, run_coseg, run_em)
+  }
+
+  def phaseByTransmission(ped: Pedigree, gene_annotation: String,  number_partitions: Int) : KeyTable = {
+    PhaseTrios.getTrioPhase(vds, ped, gene_annotation, number_partitions)
   }
 
   /**
