@@ -1,12 +1,15 @@
 package is.hail.methods
 
-import is.hail.expr.{TStruct, TVariant, Type, TSet, TString, TArray, TDouble}
+import is.hail.annotations.Annotation
+import is.hail.expr.{TArray, TDouble, TSet, TString, TStruct, TVariant, Type}
 import is.hail.keytable.KeyTable
 import is.hail.utils.SparseVariantSampleMatrixRRDBuilder
 import is.hail.variant.{Variant, VariantDataset}
 import org.apache.spark.HashPartitioner
 import is.hail.utils._
 import org.apache.spark.sql.Row
+
+import scala.collection.mutable
 
 object PhaseEM {
 
@@ -32,8 +35,101 @@ object PhaseEM {
     }
   }
 
+  def apply(vds: VariantDataset, keys: Array[String], number_partitions: Int, variantPairs: KeyTable): KeyTable = {
+    //Check that variantPairs is a KeyTable with 2  key fields of type variant
+    val variantKeys = variantPairs.keyFields.filter(_.typ == TVariant).map(x => x.index)
+    if (variantKeys.length != 2)
+      fatal(s"variant pairs KeyTable must have exactly two keys of type TVariant")
+
+    val orderedVariantPairs = variantPairs.rdd.map{
+      case row =>
+        val v1 = row.getAs[Variant](variantKeys(0))
+        val v2 = row.getAs[Variant](variantKeys(1))
+
+        if (v1.compare(v2) < 0)
+          (v1,v2)
+        else
+          (v2,v1)
+
+    }.collect().toSet
+
+    val flatMapOp = (key: Any, svm: SparseVariantSampleMatrix) => {
+
+      orderedVariantPairs.toIterator.flatMap{
+        case (v1, v2) =>
+          val v1s = v1.toString
+          val v2s = v2.toString
+          val v1a = svm.getVariantAnnotationsAsOption(v1s).getOrElse(Annotation.empty)
+          val v2a = svm.getVariantAnnotationsAsOption(v2s).getOrElse(Annotation.empty)
+
+          val haplotypeCounts = Phasing.phaseVariantPairWithEM(svm.getGenotypeCounts(v1s, v2s))
+          val probOnSameHaplotypeWithEM = Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
+          val haplotypeCountsIndexedSeq = haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null)
+
+          (svm.getVariantAsOption(v1s),svm.getVariantAsOption(v2s)) match{
+            case (Some(s1),Some(s2)) =>
+              val samples = s1.keys.toSet.intersect(s2.keys.toSet)
+
+              if (samples.isEmpty)
+                Iterator((key, v1, v1a, v2, v2a, null, null, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
+              else {
+                samples.toIterator.map{
+                  case s => (key, v1, v1a, v2, v2a, s, svm.getSampleAnnotations(s), haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)
+                }
+              }
+            case _ =>
+              Iterator((key, v1, v1a, v2, v2a, null, null, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
+          }
+
+      }
+
+    }
+
+    vdsToKeyTable(vds, keys, number_partitions, flatMapOp)
+
+  }
 
   def apply(vds: VariantDataset, keys: Array[String], number_partitions: Int): KeyTable = {
+
+    val flatMapOp = (key: Any, svm: SparseVariantSampleMatrix) => {
+      svm.variants.toIterator.flatMap {
+        case v1 =>
+          val sampleVariantPairs = svm.getVariant(v1).filter(_._2.isCalledNonRef).toIterator.flatMap {
+            case (s, g1) =>
+              svm.getSample(s).filter { case (v2, g2) => g2.isCalledNonRef && v1 < v2 }.map { case (v2, g2) => (v2, s, g1, g2) }
+          }.toIndexedSeq.groupBy(_._1)
+
+          sampleVariantPairs.flatMap {
+            case (v2, gts) =>
+              val haplotypeCounts = Phasing.phaseVariantPairWithEM(svm.getGenotypeCounts(v1, v2))
+              val va = Variant.parse(v1)
+              val vb = Variant.parse(v2)
+              val switch = va.compare(vb) > 0
+
+              val res = (
+                if (switch) vb else va,
+                if (switch) svm.getVariantAnnotations(v2) else svm.getVariantAnnotations(v1),
+                if (switch) va else vb,
+                if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
+                haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null),
+                Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
+              )
+
+              gts.map {
+                case (_, s, g1, g2) =>
+                  (key, res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6)
+              }
+          }
+
+      }
+
+    }
+
+    vdsToKeyTable(vds, keys, number_partitions, flatMapOp)
+  }
+
+  def vdsToKeyTable(vds: VariantDataset, keys: Array[String], number_partitions: Int,
+    flatMapOp: (Any, SparseVariantSampleMatrix) => TraversableOnce[(Any, Variant, Annotation, Variant, Annotation, String, Annotation, IndexedSeq[Double],Any)] ): KeyTable = {
 
     val nkeys = keys.length
 
@@ -61,35 +157,7 @@ object PhaseEM {
       }
     ).flatMap {
       case (key, svm) =>
-        val variantPairs = svm.getExistingVariantPairs().toArray
-        variantPairs.flatMap {
-          case (v1, v2) =>
-
-            val haplotypeCounts = Phasing.phaseVariantPairWithEM(svm.getGenotypeCounts(v1, v2))
-
-            val v1_samples = svm.getVariant(v1).filter(_._2.isHet).keys.toSet
-            val v2_samples = svm.getVariant(v2).filter(_._2.isHet).keys.toSet
-
-            v1_samples.intersect(v2_samples).map {
-              case sample =>
-
-                val va = Variant.parse(v1)
-                val vb = Variant.parse(v2)
-                val switch = va.compare(vb) > 0
-
-                (key,
-                  if (switch) vb else va,
-                  if (switch) svm.getVariantAnnotations(v2) else svm.getVariantAnnotations(v1),
-                  if (switch) va else vb,
-                  if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
-                  sample,
-                  svm.getSampleAnnotations(sample),
-                  haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null),
-                  Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
-                )
-            }
-
-        }.map {
+        flatMapOp(key, svm).map {
           case (k, v1, va1, v2, va2, s, sa, hc, p) =>
             nkeys match {
               case 1 => Row(k, v1, va1, v2, va2, s, sa, hc, p)

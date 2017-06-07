@@ -328,6 +328,13 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
     variantsAnnotations(variantsIndex(variantID))
   }
 
+  def getVariantAnnotationsAsOption(variantID: String) : Option[Annotation] = {
+    variantsIndex.get(variantID) match{
+      case Some(vi) => Some(variantsAnnotations(vi))
+      case None => None
+    }
+  }
+
   //Applies an operation on each sample
   //The map operation accesses the sample name and index and arrays of variant ID and genotypes.
   def mapSamples[R](mapOp: (String, Int, Array[Int],Array[Byte]) => R)(implicit uct: ClassTag[R]): Array[R] = {
@@ -387,7 +394,7 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
   def getExistingVariantPairs() : Set[(String,String)] = {
 
     //Stores whether each variant pair was observed
-    val result = mutable.HashSet[(Int,Int)]()
+    val result = mutable.Set[(Int,Int)]()
 
     //Go through each of the samples and fill the matrix
     if(s_vindices.isEmpty){ buildSampleView() }
@@ -413,7 +420,7 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
             })
         })
     })
-    result.toSet.map{case (v1i, v2i) => (variants(v1i), variants(v2i))}
+    result.map{case (v1i, v2i) => (variants(v1i), variants(v2i))}.toSet
   }
 
 
