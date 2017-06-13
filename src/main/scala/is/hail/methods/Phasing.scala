@@ -48,7 +48,7 @@ object Phasing {
 
   /** Implementents the EM discribed in
     * Maximum-Likelihood  Estimation  of Molecular  Haplotype  Frequencies  in a Diploid  Population
-    * Escoffier & Slatkin, Mol. Biol. Evol. 1995
+    * Excoffier & Slatkin, Mol. Biol. Evol. 1995
     *
     * @param gtCounts The genotype counts for the 4 possible haplotypes given bi-allelic variants Aa and Bb:
     *                       HomRef / HomRef

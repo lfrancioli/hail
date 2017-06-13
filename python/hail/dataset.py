@@ -4919,67 +4919,12 @@ class VariantDataset(object):
 
         return VariantDataset(self.hc, self._jvds.setVaAttributes(ann_path, Env.jutils().javaMapToMap(attributes)))
 
-    @handle_py4j
-    @typecheck_method(reference_vds=anytype,
-                      pedigree=Pedigree,
-                      gene_ann=strlike,
-                      output=strlike,
-                      num_partitions=integral,
-                      va_strat=oneof(strlike, listof(strlike)),
-                      sa_strat=oneof(strlike, listof(strlike)),
-                      run_coseg=bool,
-                      run_em=bool)
-    def phase_trios(self, reference_vds, pedigree, gene_ann, output, num_partitions, va_strat = '', sa_strat = '', run_coseg = False, run_em = True):
-        """
-        Computes statistics on variant phasing in trios using transmission vs using reference data (e.g. gnomAD)
-
-        :param reference_vds: reference dataset to use for statistical phasing
-        :type reference_vds: :py:class:`hail.VariantDataset`
-        :param pedigree: Sample pedigree.
-        :type pedigree: :class:`~hail.representation.Pedigree`
-        :param str gene_ann: gene annotation root
-        :param str output: output file
-        :param int num_partitions: Number of partitions for svsm
-        :param str or list of str va_strat: variant annotation stratification
-        :param str or list of str sa_strat: sample annotation stratification
-        :param bool run_coseg: run co-seggregation algorithm
-        :param bool run_em: run EM algorithm
-        """
-
-        self._jvdf.phaseTrios(reference_vds._jvds, pedigree._jrep, gene_ann, output, num_partitions, va_strat, sa_strat, run_coseg, run_em)
-
-    @handle_py4j
-    @typecheck_method(keys=oneof(strlike, listof(strlike)),
-                      num_partitions=integral)
-    def phase_em(self, keys, num_partitions):
-        """
-
-        Splits the data based on the key(s) (e.g. gene), and for each portion of the data computes
-        the inferred phase between each pair of variants present in at least a sample.
-
-        :param str or list of str keys: The keys for partitioning the data (e.g. gene)
-        :param int num_partitions: The number of partitions for the resulting Keytable
-        :return: A KeyTable keyed by the input keys and with values:
-             - variant1
-             - variant2
-              - list of samples carrying variant 1 but not variant 2
-              - list of samples carrying variant 1 and 2
-              - list of samples carrying variant 2 but not variant 1
-              - estimated number of haplotypes for AB, Ab, aB, ab
-              - probability of both variants being on the same haplotype
-        :rtype: KeyTable
-        """
-
-        if isinstance(keys, list):
-            keys = ','.join(keys)
-
-        return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions))
 
     @handle_py4j
     @typecheck_method(keys=oneof(strlike, listof(strlike)),
                       num_partitions=integral,
                       variant_pairs=anytype)
-    def phase_em(self, keys, num_partitions, variant_pairs):
+    def phase_em(self, keys, num_partitions, variant_pairs = None):
         """
 
         Splits the data based on the key(s) (e.g. gene), and for each portion of the data computes
@@ -5001,7 +4946,11 @@ class VariantDataset(object):
         if isinstance(keys, list):
             keys = ','.join(keys)
 
-        return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions, variant_pairs._jkt))
+        if variant_pairs:
+            return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions, variant_pairs._jkt))
+        else:
+            return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions))
+
 
     @handle_py4j
     @typecheck_method(ped=Pedigree,

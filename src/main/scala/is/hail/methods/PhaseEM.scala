@@ -1,7 +1,7 @@
 package is.hail.methods
 
 import is.hail.annotations.Annotation
-import is.hail.expr.{TArray, TDouble, TSet, TString, TStruct, TVariant, Type}
+import is.hail.expr.{TArray, TDouble, TInt, TSet, TString, TStruct, TVariant, Type}
 import is.hail.keytable.KeyTable
 import is.hail.utils.SparseVariantSampleMatrixRRDBuilder
 import is.hail.variant.{Variant, VariantDataset}
@@ -57,28 +57,28 @@ object PhaseEM {
 
       orderedVariantPairs.toIterator.flatMap{
         case (v1, v2) =>
-          val v1s = v1.toString
-          val v2s = v2.toString
-          val v1a = svm.getVariantAnnotationsAsOption(v1s).getOrElse(Annotation.empty)
-          val v2a = svm.getVariantAnnotationsAsOption(v2s).getOrElse(Annotation.empty)
+          val v1a = svm.getVariantAnnotationsAsOption(v1).getOrElse(Annotation.empty)
+          val v2a = svm.getVariantAnnotationsAsOption(v2).getOrElse(Annotation.empty)
 
-          val haplotypeCounts = Phasing.phaseVariantPairWithEM(svm.getGenotypeCounts(v1s, v2s))
+          val genotypeCounts = svm.getGenotypeCounts(v1, v2)
+          val haplotypeCounts = Phasing.phaseVariantPairWithEM(genotypeCounts)
           val probOnSameHaplotypeWithEM = Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
+          val genotypeCountsIndexedSeq = genotypeCounts.toArray.toIndexedSeq
           val haplotypeCountsIndexedSeq = haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null)
 
-          (svm.getVariantAsOption(v1s),svm.getVariantAsOption(v2s)) match{
+          (svm.getVariantAsOption(v1),svm.getVariantAsOption(v2)) match{
             case (Some(s1),Some(s2)) =>
               val samples = s1.keys.toSet.intersect(s2.keys.toSet)
 
               if (samples.isEmpty)
-                Iterator((key, v1, v1a, v2, v2a, null, null, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
+                Iterator((key, v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
               else {
                 samples.toIterator.map{
-                  case s => (key, v1, v1a, v2, v2a, s, svm.getSampleAnnotations(s), haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)
+                  case s => (key, v1, v1a, v2, v2a, s, svm.getSampleAnnotations(s), genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)
                 }
               }
             case _ =>
-              Iterator((key, v1, v1a, v2, v2a, null, null, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
+              Iterator((key, v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
           }
 
       }
@@ -96,28 +96,27 @@ object PhaseEM {
         case v1 =>
           val sampleVariantPairs = svm.getVariant(v1).filter(_._2.isCalledNonRef).toIterator.flatMap {
             case (s, g1) =>
-              svm.getSample(s).filter { case (v2, g2) => g2.isCalledNonRef && v1 < v2 }.map { case (v2, g2) => (v2, s, g1, g2) }
+              svm.getSample(s).filter { case (v2, g2) => g2.isCalledNonRef && v1.compare(v2) < 0 }.map { case (v2, g2) => (v2, s, g1, g2) }
           }.toIndexedSeq.groupBy(_._1)
 
           sampleVariantPairs.flatMap {
             case (v2, gts) =>
-              val haplotypeCounts = Phasing.phaseVariantPairWithEM(svm.getGenotypeCounts(v1, v2))
-              val va = Variant.parse(v1)
-              val vb = Variant.parse(v2)
-              val switch = va.compare(vb) > 0
+              val genotypeCounts = svm.getGenotypeCounts(v1, v2)
+              val haplotypeCounts = Phasing.phaseVariantPairWithEM(genotypeCounts)
 
               val res = (
-                if (switch) vb else va,
-                if (switch) svm.getVariantAnnotations(v2) else svm.getVariantAnnotations(v1),
-                if (switch) va else vb,
-                if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
+                v1,
+                svm.getVariantAnnotations(v1),
+                v2,
+                svm.getVariantAnnotations(v2),
+                genotypeCounts.toArray.toIndexedSeq,
                 haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null),
                 Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
               )
 
               gts.map {
                 case (_, s, g1, g2) =>
-                  (key, res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6)
+                  (key, res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6, res._7)
               }
           }
 
@@ -129,7 +128,7 @@ object PhaseEM {
   }
 
   def vdsToKeyTable(vds: VariantDataset, keys: Array[String], number_partitions: Int,
-    flatMapOp: (Any, SparseVariantSampleMatrix) => TraversableOnce[(Any, Variant, Annotation, Variant, Annotation, String, Annotation, IndexedSeq[Double],Any)] ): KeyTable = {
+    flatMapOp: (Any, SparseVariantSampleMatrix) => TraversableOnce[(Any, Variant, Annotation, Variant, Annotation, String, Annotation, IndexedSeq[Int], IndexedSeq[Double],Any)] ): KeyTable = {
 
     val nkeys = keys.length
 
@@ -158,24 +157,24 @@ object PhaseEM {
     ).flatMap {
       case (key, svm) =>
         flatMapOp(key, svm).map {
-          case (k, v1, va1, v2, va2, s, sa, hc, p) =>
+          case (k, v1, va1, v2, va2, s, sa, gc, hc, p) =>
             nkeys match {
-              case 1 => Row(k, v1, va1, v2, va2, s, sa, hc, p)
+              case 1 => Row(k, v1, va1, v2, va2, s, sa, gc, hc, p)
               case 2 => {
                 val keys = k.asInstanceOf[Tuple2[Any, Any]]
-                Row(keys._1, keys._2, v1, va1, v2, va2, s, sa, hc, p)
+                Row(keys._1, keys._2, v1, va1, v2, va2, s, sa, gc, hc, p)
               }
               case 3 => {
                 val keys = k.asInstanceOf[Tuple3[Any, Any, Any]]
-                Row(keys._1, keys._2, keys._3, v1, va1, v2, va2, s, sa, hc, p)
+                Row(keys._1, keys._2, keys._3, v1, va1, v2, va2, s, sa, gc, hc, p)
               }
               case 4 => {
                 val keys = k.asInstanceOf[Tuple4[Any, Any, Any, Any]]
-                Row(keys._1, keys._2, keys._3, keys._4, v1, va1, v2, va2, s, sa, hc, p)
+                Row(keys._1, keys._2, keys._3, keys._4, v1, va1, v2, va2, s, sa, gc, hc, p)
               }
               case 5 => {
                 val keys = k.asInstanceOf[Tuple5[Any, Any, Any, Any, Any]]
-                Row(keys._1, keys._2, keys._3, keys._4, keys._5, v1, va1, v2, va2, s, sa, hc, p)
+                Row(keys._1, keys._2, keys._3, keys._4, keys._5, v1, va1, v2, va2, s, sa, gc, hc, p)
               }
               case _ => fatal("How did you get all the way here ?!?")
             }
@@ -190,6 +189,7 @@ object PhaseEM {
       ("va2", vds.vaSignature),
       ("s", TString),
       ("sa", vds.saSignature),
+      ("genotype_counts", TArray(TInt)),
       ("haplotype_counts", TArray(TDouble)),
       ("prob_same_haplotype", TDouble)
     )
