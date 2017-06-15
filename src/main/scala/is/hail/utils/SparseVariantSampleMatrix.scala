@@ -29,6 +29,8 @@ object SparseVariantSampleMatrixRRDBuilder {
     //Broadcast sample annotations
     val sa = sc.broadcast(vsm.saSignature, vsm.sampleAnnotations)
 
+    val vaSignature = vsm.vaSignature
+
     vsm.rdd
       .mapPartitions { (it: Iterator[(Variant, (Annotation, Iterable[Genotype]))]) =>
         val gtBuilder = new mutable.ArrayBuilder.ofByte()
@@ -45,7 +47,7 @@ object SparseVariantSampleMatrixRRDBuilder {
           (mapOp(v, va), (v, va, siBuilder.result(), gtBuilder.result()))
         }
         //}.aggregateByKey(new SparseVariantSampleMatrix(bcSampleIds.value, newVA, sa.value._1, sa.value._2), partitioner) ( // too slow
-      }.aggregateByKey(new SparseVariantSampleMatrix(bcSampleIds.value, vsm.vaSignature), partitioner)(
+      }.aggregateByKey(new SparseVariantSampleMatrix(bcSampleIds.value, vaSignature), partitioner)(
       { case (svsm, (v, va, sampleIndices, genotypes)) =>
         svsm.addVariant(v, va, sampleIndices, genotypes)
       }, { (svsm1, svsm2) => svsm1.merge(svsm2) }).mapValues({ svsm =>
@@ -65,6 +67,7 @@ object SparseVariantSampleMatrixRRDBuilder {
     //Broadcast sample annotations
     val saSignature = vsm.saSignature
     val sa = vsm.sampleAnnotations
+    val vaSignature = vsm.vaSignature
 
     //Create a map of sampleID => saMapOp()
     val saMap = sa.indices.map{
@@ -72,9 +75,9 @@ object SparseVariantSampleMatrixRRDBuilder {
     }.toMap
 
     val siGroupedByK = saMap.toArray.groupBy(_._2).mapValues(_.map(_._1))
-    val sGroupedByK = siGroupedByK
-      .mapValues(_.map( si => vsm.sampleIds(si).asInstanceOf[String]).toIndexedSeq)
-    val saGroupedByK = siGroupedByK.mapValues(_.map(si => sa(si)))
+    val sGroupedByK = sc.broadcast(siGroupedByK
+      .mapValues(_.map( si => vsm.sampleIds(si).asInstanceOf[String]).toIndexedSeq))
+    val saGroupedByK = sc.broadcast(siGroupedByK.mapValues(_.map(si => sa(si))))
     val oldToNewSI = siGroupedByK.values.flatMap(_.zipWithIndex).toMap
 
     vsm.rdd
@@ -107,7 +110,7 @@ object SparseVariantSampleMatrixRRDBuilder {
         ls.map{ case (sak, v, va, si, gt) => ((vak, sak), (sak, v, va, si, gt)) }
     }.combineByKey(
       (x: Tuple5[K2,Variant, Annotation,Array[Int], Array[Byte]]) =>
-        new SparseVariantSampleMatrix(sGroupedByK(x._1), vsm.vaSignature).addVariant(x._2, x._3, x._4, x._5)
+        new SparseVariantSampleMatrix(sGroupedByK.value(x._1), vaSignature).addVariant(x._2, x._3, x._4, x._5)
       ,
       (svsm: SparseVariantSampleMatrix, x: Tuple5[K2,Variant, Annotation,Array[Int], Array[Byte]]) =>
         svsm.addVariant(x._2, x._3, x._4, x._5),
@@ -115,7 +118,7 @@ object SparseVariantSampleMatrixRRDBuilder {
       partitioner
     ).mapValuesWithKey({
       case ((vak, sak), svsm: SparseVariantSampleMatrix) =>
-        svsm.addSA(saSignature, saGroupedByK(sak))
+        svsm.addSA(saSignature, saGroupedByK.value(sak))
         svsm
     })
   }
@@ -190,6 +193,20 @@ class SparseVariantSampleMatrix(val sampleIDs: IndexedSeq[String], val vaSignatu
       case Some(vindex) => Some(getVariant(vindex))
       case None => None
     }
+  }
+
+  def getFirstVariant(): Option[Variant] = {
+    if(variants.isEmpty)
+      None
+    else
+      Some(variants.tail.foldLeft(variants.head){case (v1,v2) => if(v1.compare(v2) < 0) v1 else v2 })
+  }
+
+  def getLastVariant(): Option[Variant] = {
+    if(variants.isEmpty)
+      None
+    else
+      Some(variants.tail.foldLeft(variants.head){case (v1,v2) => if(v1.compare(v2) > 0) v1 else v2 })
   }
 
   //Return an empty map in case the variant is not present

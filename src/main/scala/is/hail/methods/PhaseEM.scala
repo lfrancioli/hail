@@ -13,29 +13,7 @@ import scala.collection.mutable
 
 object PhaseEM {
 
-  private implicit class Enriched_toTuple_Array[A](val seq: Array[A]) extends AnyVal {
-    def toTuple2 = seq match {
-      case Array(a, b) => (a, b);
-      case x => throw new AssertionError(s"Cannot convert array of length ${ seq.size } into Tuple2: Array(${ x.mkString(", ") })")
-    }
-
-    def toTuple3 = seq match {
-      case Array(a, b, c) => (a, b, c);
-      case x => throw new AssertionError(s"Cannot convert array of length ${ seq.size } into Tuple3: Array(${ x.mkString(", ") })")
-    }
-
-    def toTuple4 = seq match {
-      case Array(a, b, c, d) => (a, b, c, d);
-      case x => throw new AssertionError(s"Cannot convert array of length ${ seq.size } into Tuple4: Array(${ x.mkString(", ") })")
-    }
-
-    def toTuple5 = seq match {
-      case Array(a, b, c, d, e) => (a, b, c, d, e);
-      case x => throw new AssertionError(s"Cannot convert array of length ${ seq.size } into Tuple5: Array(${ x.mkString(", ") })")
-    }
-  }
-
-  def apply(vds: VariantDataset, keys: Array[String], number_partitions: Int, variantPairs: KeyTable): KeyTable = {
+  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int, variantPairs: KeyTable): KeyTable = {
     //Check that variantPairs is a KeyTable with 2  key fields of type variant
     val variantKeys = variantPairs.keyFields.filter(_.typ == TVariant).map(x => x.index)
     if (variantKeys.length != 2)
@@ -53,45 +31,54 @@ object PhaseEM {
 
     }.collect().toSet
 
-    val flatMapOp = (key: Any, svm: SparseVariantSampleMatrix) => {
+    info(s"Found ${orderedVariantPairs.size} distinct variant pairs in variantPairs KeyTable.")
 
-      orderedVariantPairs.toIterator.flatMap{
-        case (v1, v2) =>
-          val v1a = svm.getVariantAnnotationsAsOption(v1).getOrElse(Annotation.empty)
-          val v2a = svm.getVariantAnnotationsAsOption(v2).getOrElse(Annotation.empty)
+    val flatMapOp = (key: Row, svsm: SparseVariantSampleMatrix) => {
 
-          val genotypeCounts = svm.getGenotypeCounts(v1, v2)
-          val haplotypeCounts = Phasing.phaseVariantPairWithEM(genotypeCounts)
-          val probOnSameHaplotypeWithEM = Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
-          val genotypeCountsIndexedSeq = genotypeCounts.toArray.toIndexedSeq
-          val haplotypeCountsIndexedSeq = haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null)
+      (svsm.getFirstVariant(), svsm.getLastVariant()) match {
+        case (Some(firstVariant), Some(lastVariant)) =>
+          orderedVariantPairs.toIterator
+            .filter { case (v1, v2) => v1.compare(firstVariant) >= 0 && v2.compare(lastVariant) <= 0 }
+            .flatMap {
+              case (v1, v2) =>
+                val v1a = svsm.getVariantAnnotationsAsOption(v1).getOrElse(Annotation.empty)
+                val v2a = svsm.getVariantAnnotationsAsOption(v2).getOrElse(Annotation.empty)
 
-          (svm.getVariantAsOption(v1),svm.getVariantAsOption(v2)) match{
-            case (Some(s1),Some(s2)) =>
-              val samples = s1.keys.toSet.intersect(s2.keys.toSet)
+                val genotypeCounts = svsm.getGenotypeCounts(v1, v2)
+                val haplotypeCounts = Phasing.phaseVariantPairWithEM(genotypeCounts)
+                val probOnSameHaplotypeWithEM = Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
+                val genotypeCountsIndexedSeq = genotypeCounts.toArray.toIndexedSeq
+                val haplotypeCountsIndexedSeq = haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null)
 
-              if (samples.isEmpty)
-                Iterator((key, v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
-              else {
-                samples.toIterator.map{
-                  case s => (key, v1, v1a, v2, v2a, s, svm.getSampleAnnotations(s), genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)
+                (svsm.getVariantAsOption(v1), svsm.getVariantAsOption(v2)) match {
+                  case (Some(s1), Some(s2)) =>
+                    val samples = s1.keys.toSet.intersect(s2.keys.toSet)
+
+                    if (samples.isEmpty)
+                      Iterator(Row.fromSeq(key.toSeq ++ Seq(v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)))
+                    else {
+                      samples.toIterator.map {
+                        case s => Row.fromSeq(key.toSeq ++ Seq(v1, v1a, v2, v2a, s, svsm.getSampleAnnotations(s), genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
+                      }
+                    }
+                  case _ =>
+                    Iterator(Row.fromSeq(key.toSeq ++ Seq(v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)))
                 }
-              }
-            case _ =>
-              Iterator((key, v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM))
-          }
 
+            }
+        case _ =>
+          Iterator.empty
       }
 
     }
 
-    vdsToKeyTable(vds, keys, number_partitions, flatMapOp)
+    vdsToKeyTable(vds, vaKeys, saKeys, number_partitions)(flatMapOp)
 
   }
 
-  def apply(vds: VariantDataset, keys: Array[String], number_partitions: Int): KeyTable = {
+  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int): KeyTable = {
 
-    val flatMapOp = (key: Any, svm: SparseVariantSampleMatrix) => {
+    val flatMapOp = (key: Row, svm: SparseVariantSampleMatrix) => {
       svm.variants.toIterator.flatMap {
         case v1 =>
           val sampleVariantPairs = svm.getVariant(v1).filter(_._2.isCalledNonRef).toIterator.flatMap {
@@ -116,7 +103,7 @@ object PhaseEM {
 
               gts.map {
                 case (_, s, g1, g2) =>
-                  (key, res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6, res._7)
+                  Row.fromSeq(key.toSeq ++ Seq(res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6, res._7) )
               }
           }
 
@@ -124,63 +111,36 @@ object PhaseEM {
 
     }
 
-    vdsToKeyTable(vds, keys, number_partitions, flatMapOp)
+    vdsToKeyTable(vds, vaKeys, saKeys, number_partitions)(flatMapOp)
   }
 
-  def vdsToKeyTable(vds: VariantDataset, keys: Array[String], number_partitions: Int,
-    flatMapOp: (Any, SparseVariantSampleMatrix) => TraversableOnce[(Any, Variant, Annotation, Variant, Annotation, String, Annotation, IndexedSeq[Int], IndexedSeq[Double],Any)] ): KeyTable = {
+  def vdsToKeyTable(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int)
+    (flatMapOp: (Row, SparseVariantSampleMatrix) => TraversableOnce[Row]): KeyTable = {
 
-    val nkeys = keys.length
-
-    if (nkeys > 5) {
-      fatal("Cannot use more than 5 values as keys at the moment.")
-    }
 
     val sc = vds.sparkContext
     val partitioner = new HashPartitioner(number_partitions)
 
     //Get key annotations
-    val key_queriers = keys.map(k => vds.queryVA(k))
+    val vaKeysQueriers = vaKeys.map(k => vds.queryVA(k))
+    val saKeysQueriers = saKeys.map(k => vds.querySA(k))
 
-    val result = SparseVariantSampleMatrixRRDBuilder.buildByVA(vds, sc, partitioner)(
-      { case (v, va) =>
-        val annotations = key_queriers.map(q => q._2(va))
-        nkeys match {
-          case 1 => annotations(0)
-          case 2 => annotations.toTuple2
-          case 3 => annotations.toTuple3
-          case 4 => annotations.toTuple4
-          case 5 => annotations.toTuple5
-          case _ => fatal("Cannot use more than 5 values as keys at the moment.") // Should never get there
-        }
-      }
-    ).flatMap {
-      case (key, svm) =>
-        flatMapOp(key, svm).map {
-          case (k, v1, va1, v2, va2, s, sa, gc, hc, p) =>
-            nkeys match {
-              case 1 => Row(k, v1, va1, v2, va2, s, sa, gc, hc, p)
-              case 2 => {
-                val keys = k.asInstanceOf[Tuple2[Any, Any]]
-                Row(keys._1, keys._2, v1, va1, v2, va2, s, sa, gc, hc, p)
-              }
-              case 3 => {
-                val keys = k.asInstanceOf[Tuple3[Any, Any, Any]]
-                Row(keys._1, keys._2, keys._3, v1, va1, v2, va2, s, sa, gc, hc, p)
-              }
-              case 4 => {
-                val keys = k.asInstanceOf[Tuple4[Any, Any, Any, Any]]
-                Row(keys._1, keys._2, keys._3, keys._4, v1, va1, v2, va2, s, sa, gc, hc, p)
-              }
-              case 5 => {
-                val keys = k.asInstanceOf[Tuple5[Any, Any, Any, Any, Any]]
-                Row(keys._1, keys._2, keys._3, keys._4, keys._5, v1, va1, v2, va2, s, sa, gc, hc, p)
-              }
-              case _ => fatal("How did you get all the way here ?!?")
-            }
-
-        }
+    val svsmRDD = if (saKeys.isEmpty) {
+      info("Building SVSM by VA")
+      SparseVariantSampleMatrixRRDBuilder.buildByVA(vds, sc, partitioner)(
+        { case (v, va) => Row.fromSeq(vaKeysQueriers.map(q => q._2(va)).toSeq) }
+      )
     }
+    else {
+      info("Building SVSM by VA and SA")
+      SparseVariantSampleMatrixRRDBuilder.buildByVAandSA(vds, sc, partitioner)(
+        { case (v, va) => Row.fromSeq(vaKeysQueriers.map(q => q._2(va)).toSeq) }, { case sa => Row.fromSeq(saKeysQueriers.map(q => q._2(sa)).toSeq) }
+      ).map {
+        case ((vak, sak), svsm) => (Row.fromSeq(vak.toSeq ++ sak.toSeq), svsm)
+      }
+    }
+
+    val result = svsmRDD.flatMap { case (key, svm) => flatMapOp(key, svm) }
 
     val valueTypes = Array(
       ("v1", TVariant),
@@ -194,8 +154,11 @@ object PhaseEM {
       ("prob_same_haplotype", TDouble)
     )
 
-    val ktSignature = TStruct((keys.zip(key_queriers.map(_._1)) ++ valueTypes).toSeq: _*)
-    val kt = KeyTable(vds.hc, result, ktSignature, key = keys)
+    val ktSignature = TStruct(
+      (vaKeys.zip(vaKeysQueriers.map(_._1)) ++
+      saKeys.zip(saKeysQueriers.map(_._1)) ++
+      valueTypes).toSeq: _*)
+    val kt = KeyTable(vds.hc, result, ktSignature, key = vaKeys)
     kt.typeCheck()
     info("Keytable types checked!")
     return kt

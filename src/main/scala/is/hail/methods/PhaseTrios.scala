@@ -67,13 +67,13 @@ object PhaseTrios {
 
   }
 
-  def apply(trioVDS: VariantDataset, ped : Pedigree, gene_annotation: String,  number_partitions: Int) : KeyTable = {
+  def apply(trioVDS: VariantDataset, ped : Pedigree, vaKeys: Array[String],  number_partitions: Int) : KeyTable = {
 
     //Get SparkContext
     val sc = trioVDS.sparkContext
 
     //Get annotations
-    val triosGeneAnn = trioVDS.queryVA(gene_annotation)._2
+    val vaKeysQueriers = vaKeys.map(vak => trioVDS.queryVA(vak))
 
     val partitioner = new HashPartitioner(number_partitions)
 
@@ -82,7 +82,7 @@ object PhaseTrios {
     info(s"Found ${ped_in_vds.length} complete trios in VDS.")
 
     val triosRDD = SparseVariantSampleMatrixRRDBuilder.buildByVA(trioVDS, sc, partitioner)(
-      { case (v, va) => triosGeneAnn(va).toString }
+      { case (v, va) => Row.fromSeq(vaKeysQueriers.map(q => q._2(va)).toSeq) }
     ).flatMap {
       case (key, svm) =>
 
@@ -95,25 +95,26 @@ object PhaseTrios {
               case (v1, v2, onSameHaplotype) =>
                 val switch = v1.compare(v2) > 0
 
-                Row(key,
-                  if (switch) v2 else v1,
-                  if (switch) svm.getVariantAnnotations(v2) else svm.getVariantAnnotations(v1),
-                  if (switch) v1 else v2,
-                  if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
-                  trio.kid,
-                  svm.getSampleAnnotations(trio.kid),
-                  trio.mom.get,
-                  svm.getSampleAnnotations(trio.mom.get),
-                  trio.dad.get,
-                  svm.getSampleAnnotations(trio.dad.get),
-                  onSameHaplotype.get
+                Row.fromSeq(key.toSeq ++
+                  Seq(
+                    if (switch) v2 else v1,
+                    if (switch) svm.getVariantAnnotations(v2) else svm.getVariantAnnotations(v1),
+                    if (switch) v1 else v2,
+                    if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
+                    trio.kid,
+                    svm.getSampleAnnotations(trio.kid),
+                    trio.mom.get,
+                    svm.getSampleAnnotations(trio.mom.get),
+                    trio.dad.get,
+                    svm.getSampleAnnotations(trio.dad.get),
+                    onSameHaplotype.get
+                  )
                 )
             }
         }
     }
 
-    val ktSignature = TStruct(
-      (gene_annotation,TString),
+    val valueTypes = Array(
       ("v1", TVariant),
       ("va1", trioVDS.vaSignature),
       ("v2", TVariant),
@@ -127,8 +128,11 @@ object PhaseTrios {
       ("same_haplotype", TBoolean)
     )
 
+    val ktSignature = TStruct(
+      (vaKeys.zip(vaKeysQueriers.map(_._1)) ++
+        valueTypes).toSeq: _*)
 
-    val kt = KeyTable(trioVDS.hc, triosRDD, ktSignature, key = Array(gene_annotation))
+    val kt = KeyTable(trioVDS.hc, triosRDD, ktSignature, key = vaKeys)
     kt.typeCheck()
     info("Keytable types checked!")
     return kt

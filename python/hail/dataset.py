@@ -4921,16 +4921,17 @@ class VariantDataset(object):
 
 
     @handle_py4j
-    @typecheck_method(keys=oneof(strlike, listof(strlike)),
+    @typecheck_method(va_keys=oneof(strlike, listof(strlike)),
                       num_partitions=integral,
+                      sa_keys=nullable(oneof(strlike, listof(strlike))),
                       variant_pairs=anytype)
-    def phase_em(self, keys, num_partitions, variant_pairs = None):
+    def phase_em(self, va_keys, num_partitions, sa_keys = None, variant_pairs = None):
         """
 
         Splits the data based on the key(s) (e.g. gene), and for each portion of the data computes
         the inferred phase between each pair of variants present in at least a sample.
 
-        :param str or list of str keys: The keys for partitioning the data (e.g. gene)
+        :param str or list of str va_keys: The keys for partitioning the data (e.g. gene)
         :param int num_partitions: The number of partitions for the resulting Keytable
         :return: A KeyTable keyed by the input keys and with values:
              - variant1
@@ -4943,20 +4944,20 @@ class VariantDataset(object):
         :rtype: KeyTable
         """
 
-        if isinstance(keys, list):
-            keys = ','.join(keys)
+        if isinstance(va_keys, list):
+            va_keys = ','.join(va_keys)
 
-        if variant_pairs:
-            return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions, variant_pairs._jkt))
-        else:
-            return KeyTable(self.hc, self._jvdf.phaseEM(keys, num_partitions))
+        if sa_keys and isinstance(sa_keys, list):
+            sa_keys = ','.join(sa_keys)
+
+        return KeyTable(self.hc, self._jvdf.phaseEM(va_keys, num_partitions, sa_keys, variant_pairs._jkt))
 
 
     @handle_py4j
     @typecheck_method(ped=Pedigree,
-                      gene=strlike,
+                      va_keys=oneof(strlike, listof(strlike)),
                       num_partitions=integral)
-    def phase_by_transmission(self, ped, gene, num_partitions):
+    def phase_by_transmission(self, ped, va_keys, num_partitions):
         """
 
         For each gene, returns every pair of variants / trio that could be phased by transmission.
@@ -4968,7 +4969,10 @@ class VariantDataset(object):
         :rtype: KeyTable
         """
 
-        return KeyTable(self.hc, self._jvdf.phaseByTransmission(ped._jrep, gene, num_partitions))
+        if isinstance(va_keys, list):
+            va_keys = ','.join(va_keys)
+
+        return KeyTable(self.hc, self._jvdf.phaseByTransmission(ped._jrep, va_keys, num_partitions))
 
     @handle_py4j
     @typecheck_method(ann_path=strlike,

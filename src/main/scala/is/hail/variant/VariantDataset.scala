@@ -694,18 +694,24 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     KinshipMatrix(vds.hc, vds.sSignature, rrm, vds.stringSampleIds.toArray, m)
   }
 
-  def phaseEM(key: String, num_partitions: Int) : KeyTable = {
-    val keys = key.split(",")
-    PhaseEM(vds, keys, num_partitions)
+  def phaseEM(vaKey: String, num_partitions: Int, saKey: String = null, variantPairs: KeyTable = null) : KeyTable = {
+    val vaKeys = vaKey.split(",").filter(!_.isEmpty)
+    if(vaKeys.isEmpty)
+      fatal("phaseEM requires a non-empty va key.")
+
+    val saKeys = if(saKey == null) Array[String]() else saKey.split(",").filter(!_.isEmpty)
+    if(variantPairs == null)
+      PhaseEM(vds, vaKeys, saKeys, num_partitions)
+    else
+      PhaseEM(vds, vaKeys, saKeys, num_partitions, variantPairs)
   }
 
-  def phaseEM(key: String, num_partitions: Int, variantPairs: KeyTable) : KeyTable = {
-    val keys = key.split(",")
-    PhaseEM(vds, keys, num_partitions, variantPairs)
-  }
+  def phaseByTransmission(ped: Pedigree, vaKey: String,  number_partitions: Int) : KeyTable = {
+    val vaKeys = vaKey.split(",").filter(!_.isEmpty)
+    if(vaKeys.isEmpty)
+      fatal("phaseEM requires a non-empty va key.")
 
-  def phaseByTransmission(ped: Pedigree, gene_annotation: String,  number_partitions: Int) : KeyTable = {
-    PhaseTrios(vds, ped, gene_annotation, number_partitions)
+    PhaseTrios(vds, ped, vaKeys, number_partitions)
   }
 
   /**
