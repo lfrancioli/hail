@@ -4950,7 +4950,9 @@ class VariantDataset(object):
         if sa_keys and isinstance(sa_keys, list):
             sa_keys = ','.join(sa_keys)
 
-        return KeyTable(self.hc, self._jvdf.phaseEM(va_keys, num_partitions, sa_keys, variant_pairs._jkt))
+        variant_pairs_kt = variant_pairs._jkt if variant_pairs else None
+
+        return KeyTable(self.hc, self._jvdf.phaseEM(va_keys, num_partitions, sa_keys, variant_pairs_kt))
 
 
     @handle_py4j
