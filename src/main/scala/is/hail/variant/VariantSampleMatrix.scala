@@ -2002,7 +2002,6 @@ class VariantSampleMatrix[T](val hc: HailContext, val metadata: VSMMetadata,
     copy(vaSignature = all_vdses.head.vaSignature, rdd = sparkContext.union(all_vdses.map(_.rdd)).toOrderedRDD)
   }
 
-  def nSamples: Int = metadata.sampleIds.length
   def nSamples: Int = sampleIds.length
 
   def typecheck() {

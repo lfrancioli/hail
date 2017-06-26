@@ -182,7 +182,7 @@ object HailContext {
     hc
   }
 
-  def checkDatasetSchemasCompatible[T](datasets: Array[VariantSampleMatrix[T]], inputs: Array[String]): Unit = {
+  def checkDatasetSchemasCompatible(datasets: Array[VariantSampleMatrix[_]], inputs: Array[String]): Unit = {
     val sampleIds = datasets.head.sampleIds
     val vaSchema = datasets.head.vaSignature
     val wasSplit = datasets.head.wasSplit
@@ -489,7 +489,7 @@ class HailContext private(val sc: SparkContext,
     if (vsms.length == 1)
       return vsms(0)
 
-    HailContext.checkDatasetSchemasCompatible(vdses, inputs)
+    HailContext.checkDatasetSchemasCompatible(vsms, inputs)
 
     // I can't figure out how to write this with existentials -cs
     if (vsms(0).isGenericGenotype) {
@@ -517,7 +517,6 @@ class HailContext private(val sc: SparkContext,
   def readGDS(file: String, dropSamples: Boolean = false, dropVariants: Boolean = false): GenericDataset =
     readAllGDS(List(file), dropSamples, dropVariants)
 
-    HailContext.checkDatasetSchemasCompatible(gdses, inputs)
   def readAllGDS(files: Seq[String], dropSamples: Boolean = false, dropVariants: Boolean = false): GenericDataset = {
     val vds = readAll(files, dropSamples, dropVariants)
 
