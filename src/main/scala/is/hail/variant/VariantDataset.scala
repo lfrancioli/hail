@@ -694,14 +694,14 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     KinshipMatrix(vds.hc, vds.sSignature, rrm, vds.stringSampleIds.toArray, m)
   }
 
-  def phaseEM(vaKey: String, num_partitions: Int, saKey: String = null, variantPairs: KeyTable = null) : KeyTable = {
+  def phaseEM(vaKey: String, num_partitions: Int, saKey: String = null, variantPairs: KeyTable = null, bySample: Boolean = false) : KeyTable = {
     val vaKeys = vaKey.split(",").filter(!_.isEmpty)
     if(vaKeys.isEmpty)
       fatal("phaseEM requires a non-empty va key.")
 
     val saKeys = if(saKey == null) Array[String]() else saKey.split(",").filter(!_.isEmpty)
     if(variantPairs == null)
-      PhaseEM(vds, vaKeys, saKeys, num_partitions)
+        PhaseEM(vds, vaKeys, saKeys, num_partitions, bySample)
     else
       PhaseEM(vds, vaKeys, saKeys, num_partitions, variantPairs)
   }

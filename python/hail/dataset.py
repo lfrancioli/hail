@@ -4924,8 +4924,9 @@ class VariantDataset(object):
     @typecheck_method(va_keys=oneof(strlike, listof(strlike)),
                       num_partitions=integral,
                       sa_keys=nullable(oneof(strlike, listof(strlike))),
-                      variant_pairs=anytype)
-    def phase_em(self, va_keys, num_partitions, sa_keys = None, variant_pairs = None):
+                      variant_pairs=anytype,
+                      by_sample=bool)
+    def phase_em(self, va_keys, num_partitions, sa_keys = None, variant_pairs = None, by_sample = False):
         """
 
         Splits the data based on the key(s) (e.g. gene), and for each portion of the data computes
@@ -4952,7 +4953,7 @@ class VariantDataset(object):
 
         variant_pairs_kt = variant_pairs._jkt if variant_pairs else None
 
-        return KeyTable(self.hc, self._jvdf.phaseEM(va_keys, num_partitions, sa_keys, variant_pairs_kt))
+        return KeyTable(self.hc, self._jvdf.phaseEM(va_keys, num_partitions, sa_keys, variant_pairs_kt, by_sample))
 
 
     @handle_py4j

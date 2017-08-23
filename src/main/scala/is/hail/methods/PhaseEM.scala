@@ -13,7 +13,7 @@ import scala.collection.mutable
 
 object PhaseEM {
 
-  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int, variantPairs: KeyTable): KeyTable = {
+  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], numberPartitions: Int, variantPairs: KeyTable): KeyTable = {
     //Check that variantPairs is a KeyTable with 2  key fields of type variant
     val variantKeys = variantPairs.keyFields.filter(_.typ == TVariant).map(x => x.index)
     if (variantKeys.length != 2)
@@ -72,23 +72,25 @@ object PhaseEM {
 
     }
 
-    vdsToKeyTable(vds, vaKeys, saKeys, number_partitions)(flatMapOp)
+    vdsToKeyTable(vds, vaKeys, saKeys, numberPartitions)(flatMapOp)
 
   }
 
-  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int): KeyTable = {
+  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], numberPartitions: Int, bySample: Boolean): KeyTable = {
 
     val flatMapOp = (key: Row, svm: SparseVariantSampleMatrix) => {
       svm.variants.toIterator.flatMap {
         case v1 =>
-          val sampleVariantPairs = svm.getVariant(v1).filter(_._2.isCalledNonRef).toIterator.flatMap {
+          val sampleVariantPairs = svm.getVariant(v1).filter(_._2.isHet).toIterator.flatMap {
             case (s, g1) =>
-              svm.getSample(s).filter { case (v2, g2) => g2.isCalledNonRef && v1.compare(v2) < 0 }.map { case (v2, g2) => (v2, s, g1, g2) }
+              svm.getSample(s).filter { case (v2, g2) => g2.isHet && v1.compare(v2) < 0 }.map { case (v2, g2) => (v2, s, g1, g2) }
           }.toIndexedSeq.groupBy(_._1)
 
           sampleVariantPairs.flatMap {
             case (v2, gts) =>
               val genotypeCounts = svm.getGenotypeCounts(v1, v2)
+              if (bySample)
+                genotypeCounts(4) -= 1
               val haplotypeCounts = Phasing.phaseVariantPairWithEM(genotypeCounts)
 
               val res = (
@@ -111,7 +113,7 @@ object PhaseEM {
 
     }
 
-    vdsToKeyTable(vds, vaKeys, saKeys, number_partitions)(flatMapOp)
+    vdsToKeyTable(vds, vaKeys, saKeys, numberPartitions)(flatMapOp)
   }
 
   def vdsToKeyTable(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int)
