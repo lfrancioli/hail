@@ -574,6 +574,12 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     LinearRegressionBurden(vds, keyName, variantKeys, singleKey, aggExpr, y, covariates)
   }
 
+  def linregBurdenMultiPheno(keyName: String, variantKeys: String, singleKey: Boolean, aggExpr: String, ysName: Array[String], ys: Array[String], covariates: Array[String] = Array.empty[String]): (KeyTable, KeyTable) = {
+    requireSplit("linear burden regression")
+    vds.requireSampleTString("linear burden regression")
+    LinearRegressionBurdenMultiPheno(vds, keyName, variantKeys, singleKey, aggExpr, ysName, ys, covariates)
+  }
+
   def linregMultiPheno(ys: Array[String], covariates: Array[String] = Array.empty[String], root: String = "va.linreg", useDosages: Boolean = false, minAC: Int = 1, minAF: Double = 0d): VariantDataset = {
     requireSplit("linear regression for multiple phenotypes")
     LinearRegressionMultiPheno(vds, ys, covariates, root, useDosages, minAC, minAF)
@@ -616,6 +622,12 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     requireSplit("linear burden regression")
     vds.requireSampleTString("linear burden regression")
     LogisticRegressionBurden(vds, keyName, variantKeys, singleKey, aggExpr, test, y, covariates)
+  }
+
+  def logregBurdenMultiPheno(keyName: String, variantKeys: String, singleKey: Boolean, aggExpr: String, test: String, ysName: Array[String], ys: Array[String], covariates: Array[String] = Array.empty[String]): (KeyTable, KeyTable) = {
+    requireSplit("linear burden regression")
+    vds.requireSampleTString("linear burden regression")
+    LogisticRegressionBurdenMultiPheno(vds, keyName, variantKeys, singleKey, aggExpr, test, ysName, ys, covariates)
   }
 
   def makeSchemaForKudu(): StructType =

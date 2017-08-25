@@ -2946,6 +2946,27 @@ class VariantDataset(object):
         return linreg_kt, sample_kt
 
     @handle_py4j
+    @typecheck_method(key_name=strlike,
+                      variant_keys=strlike,
+                      single_key=bool,
+                      agg_expr=strlike,
+                      ys_name=listof(strlike),
+                      ys=listof(strlike),
+                      covariates=listof(strlike))
+    def linreg_burden_multi_pheno(self, key_name, variant_keys, single_key, agg_expr, ys_name, ys, covariates=[]):
+        r = self._jvdf.linregBurdenMultiPheno(key_name,
+                                              variant_keys,
+                                              single_key,
+                                              agg_expr,
+                                              jarray(Env.jvm().java.lang.String, ys_name),
+                                              jarray(Env.jvm().java.lang.String, ys),
+                                              jarray(Env.jvm().java.lang.String, covariates))
+        linreg_kt = KeyTable(self.hc, r._1())
+        sample_kt = KeyTable(self.hc, r._2())
+
+        return linreg_kt, sample_kt
+
+    @handle_py4j
     @requireTGenotype
     @typecheck_method(ys=listof(strlike),
                       covariates=listof(strlike),
@@ -3556,6 +3577,29 @@ class VariantDataset(object):
         """
 
         r = self._jvdf.logregBurden(key_name, variant_keys, single_key, agg_expr, test, y, jarray(Env.jvm().java.lang.String, covariates))
+        logreg_kt = KeyTable(self.hc, r._1())
+        sample_kt = KeyTable(self.hc, r._2())
+
+        return logreg_kt, sample_kt
+
+    @handle_py4j
+    @typecheck_method(key_name=strlike,
+                      variant_keys=strlike,
+                      single_key=bool,
+                      agg_expr=strlike,
+                      test=strlike,
+                      ys_name=listof(strlike),
+                      ys=listof(strlike),
+                      covariates=listof(strlike))
+    def logreg_burden_multi_pheno(self, key_name, variant_keys, single_key, agg_expr, test, ys_name, ys, covariates=[]):
+        r = self._jvdf.logregBurdenMultiPheno(key_name,
+                                              variant_keys,
+                                              single_key,
+                                              agg_expr,
+                                              test,
+                                              jarray(Env.jvm().java.lang.String, ys_name),
+                                              jarray(Env.jvm().java.lang.String, ys),
+                                              jarray(Env.jvm().java.lang.String, covariates))
         logreg_kt = KeyTable(self.hc, r._1())
         sample_kt = KeyTable(self.hc, r._2())
 
