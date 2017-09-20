@@ -68,14 +68,15 @@ object LinearRegressionBurdenMultiPheno {
     info(s"Running linear regression burden test for ${ysExpr.length} ${ plural(ysExpr.length, "phenotype") } on ${sampleKT.count} keys on ${vds.nSamples} samples with ${covExpr.length} ${ plural(covExpr.length, "covariate") } ...")
 
     val sc = sampleKT.hc.sc
-    val bcVars = sc.broadcast(ysCovSamples.map{
+    val vars = ysCovSamples.map{
       case (yName, completeSampleIndex, y, cov, d) =>
         val Qt = qr.reduced.justQ(cov).t
         val Qty = Qt * y
         val yyp = (y dot y) - (Qty dot Qty)
 
         (yName, completeSampleIndex, y, Qt, Qty, yyp, d)
-    })
+    }
+    val bcVars = sc.broadcast(vars)
 
 //    val linregFields = (keyName, keyType) +: ysName.map(n => (n,LinearRegression.schema))
 //    val linregSignature = TStruct(linregFields : _*)
