@@ -7,7 +7,7 @@ import is.hail.annotations._
 import is.hail.utils.{SparseVariantSampleMatrix, SparseVariantSampleMatrixRRDBuilder}
 import is.hail.variant._
 import is.hail.utils._
-import is.hail.expr.{TArray, TBoolean, TDouble, TString, TStruct, TVariant, Type}
+import is.hail.expr.{TArray, TBoolean, TDouble, TGenotype, TString, TStruct, TVariant, Type}
 import is.hail.keytable.KeyTable
 import org.apache.spark.sql.Row
 
@@ -102,10 +102,16 @@ object PhaseTrios {
                     if (switch) v1 else v2,
                     if (switch) svm.getVariantAnnotations(v1) else svm.getVariantAnnotations(v2),
                     trio.kid,
+                    svm.getGenotype(v1,trio.kid),
+                    svm.getGenotype(v2,trio.kid),
                     svm.getSampleAnnotations(trio.kid),
                     trio.mom.get,
+                    svm.getGenotype(v1,trio.mom.get),
+                    svm.getGenotype(v2,trio.mom.get),
                     svm.getSampleAnnotations(trio.mom.get),
                     trio.dad.get,
+                    svm.getGenotype(v1,trio.dad.get),
+                    svm.getGenotype(v2,trio.dad.get),
                     svm.getSampleAnnotations(trio.dad.get),
                     onSameHaplotype.get
                   )
@@ -120,10 +126,16 @@ object PhaseTrios {
       ("v2", TVariant),
       ("va2", trioVDS.vaSignature),
       ("kid", TString),
+      ("kid_v1", TGenotype),
+      ("kid_v2", TGenotype),
       ("kidSA", trioVDS.saSignature),
       ("mom", TString),
+      ("mom_v1", TGenotype),
+      ("mom_v2", TGenotype),
       ("momSA", trioVDS.saSignature),
       ("dad", TString),
+      ("dad_v1", TGenotype),
+      ("dad_v2", TGenotype),
       ("dadSA", trioVDS.saSignature),
       ("same_haplotype", TBoolean)
     )
