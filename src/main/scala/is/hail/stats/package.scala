@@ -304,6 +304,7 @@ package object stats {
     }
     (new A).x
   }
+
   def binomTest(nSuccess: Int, n: Int, p: Double, alternative: String): Double = {
     val kind = alternative match {
       case "two.sided" => TestKind.TWO_SIDED
@@ -328,8 +329,6 @@ package object stats {
       prob * log2(prob)
     }).sum
   }
-
-  def uninitialized[T]: T = null.asInstanceOf[T]
 
   // genotypes(i,j) is genotype of variant j in sample i encoded as one of {-1, 0, 1, 2}; i and j are 0-based indices
   // sample i is "i" by default
