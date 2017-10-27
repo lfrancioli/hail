@@ -1,11 +1,17 @@
 package is.hail
 
 import breeze.linalg.Matrix
+import breeze.numerics.log2
 import is.hail.annotations.Annotation
 import is.hail.utils._
 import is.hail.variant.{Genotype, VSMFileMetadata, Variant, VariantDataset}
 import net.sourceforge.jdistlib.{ChiSquare, Normal, Poisson}
+import is.hail.variant.{Genotype, VSMFileMetadata, Variant, VariantDataset, VariantKeyDataset}
+import net.sourceforge.jdistlib.disttest.{DistributionTest, TestKind}
+import net.sourceforge.jdistlib.{Beta, ChiSquare, Normal, Poisson}
 import org.apache.commons.math3.distribution.HypergeometricDistribution
+import org.apache.spark.sql.Row
+import scala.collection.mutable
 
 package object stats {
 
@@ -301,6 +307,32 @@ package object stats {
     }
     (new A).x
   }
+  def binomTest(nSuccess: Int, n: Int, p: Double, alternative: String): Double = {
+    val kind = alternative match {
+      case "two.sided" => TestKind.TWO_SIDED
+      case "less" => TestKind.LOWER
+      case "greater" => TestKind.GREATER
+      case _ => fatal("didn't recognize option for alternative. Use one of [less, greater, two.sided]")
+    }
+
+    DistributionTest.binomial_test(nSuccess, n, p, kind)(1)
+  }
+
+  def entropy[T](x: Traversable[T]): Double = {
+    val counts = x.foldLeft(mutable.Map[T, Double]())((counter, element) => {
+      counter.update(element, 1.0 + counter.getOrElse(element, 0.0))
+      counter
+    }).values
+
+    val length = counts.sum
+
+    -1.0 * counts.map(count => {
+      val prob = count / length
+      prob * log2(prob)
+    }).sum
+  }
+
+  def uninitialized[T]: T = null.asInstanceOf[T]
 
   // genotypes(i,j) is genotype of variant j in sample i encoded as one of {-1, 0, 1, 2}; i and j are 0-based indices
   // sample i is "i" by default
@@ -330,7 +362,7 @@ package object stats {
 
     new VariantDataset(hc, VSMFileMetadata(sampleIds, wasSplit = true), rdd)
   }
-  
+
   // genotypes(i,j) is genotype of variant j in sample i; i and j are 0-based indices
   // sample i is "i" by default
   // variant j is ("1", j + 1, "A", C") since 0 is not a valid position.

@@ -1196,6 +1196,25 @@ object FunctionRegistry {
     ``fet`` is identical to the version implemented in `R <https://stat.ethz.ch/R-manual/R-devel/library/stats/html/fisher.test.html>`_ with default parameters (two-sided, alpha = 0.05, null hypothesis that the odds ratio equals 1).
     """,
     "a" -> "value for cell 1", "b" -> "value for cell 2", "c" -> "value for cell 3", "d" -> "value for cell 4")
+
+  register("binomTest", { (nSuccess: Int, n: Int, p: Double, alternative: String) => binomTest(nSuccess, n, p, alternative)
+  },
+    """
+    Performs a binomial test and returns the p-value.
+
+    **Examples**
+
+    Test for allele balance in heterozygote samples under the hypothesis that each allele has equal probablilty of sampling.
+
+    >>> (vds.split_multi()
+    ...   .annotate_variants_expr(
+    ...   'va.ab_binom_test = let all_samples_ad = gs.filter(g => g.isHet).map(g => g.ad) in binomTest(all_samples_ad[1], all_samples_ad.sum(), 0.5, "two.sided"
+    ...   )')
+
+    """,
+    "nSuccess" -> "number of successes", "n" -> "number of trials", "p" -> "hypothesized probability of success",
+    "alternative" -> "indicates the alternative hypothesis and must be one of \"two.sided\", \"greater\" or \"less\".")
+
   // NB: merge takes two structs, how do I deal with structs?
   register("exp", { (x: Double) => math.exp(x) },
     """
@@ -1502,6 +1521,12 @@ object FunctionRegistry {
     """,
     "pattern1" -> "Substring to replace.",
     "pattern2" -> "Replacement string.")
+
+  registerMethod("entropy", { (x: String) => entropy(x)
+  },
+    """
+    Computes Shannon's entropy of String.
+    """)
 
   registerMethod("contains", (interval: Interval[Locus], locus: Locus) => interval.contains(locus),
     """
