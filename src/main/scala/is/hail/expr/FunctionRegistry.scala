@@ -1208,8 +1208,8 @@ object FunctionRegistry {
 
     >>> (vds.split_multi()
     ...   .annotate_variants_expr(
-    ...   'va.ab_binom_test = let all_samples_ad = gs.filter(g => g.isHet).map(g => g.ad).sum() in binomTest(all_samples_ad[1], all_samples_ad.sum(), 0.5, "two.sided"
-    ...   )')
+    ...   'va.ab_binom_test = let all_samples_ad = gs.filter(g => g.isHet).map(g => g.ad).sum() in binomTest(all_samples_ad[1], all_samples_ad.sum(), 0.5, "two.sided")'
+    ...   ))
 
     """,
     "nSuccess" -> "number of successes", "n" -> "number of trials", "p" -> "hypothesized probability of success",
