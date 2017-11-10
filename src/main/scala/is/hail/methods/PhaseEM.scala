@@ -13,7 +13,7 @@ import scala.collection.mutable
 
 object PhaseEM {
 
-  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], numberPartitions: Int, variantPairs: KeyTable): KeyTable = {
+  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], numberPartitions: Int, variantPairs: KeyTable, perSample: Boolean): KeyTable = {
     //Check that variantPairs is a KeyTable with 2  key fields of type variant
     val variantKeys = variantPairs.keyFields.filter(_.typ == TVariant).map(x => x.index)
     if (variantKeys.length != 2)
@@ -50,10 +50,11 @@ object PhaseEM {
                 val genotypeCountsIndexedSeq = genotypeCounts.toArray.toIndexedSeq
                 val haplotypeCountsIndexedSeq = haplotypeCounts.map(c => c.toArray.toIndexedSeq).getOrElse(null)
 
-                (svsm.getVariantAsOption(v1), svsm.getVariantAsOption(v2)) match {
-                  case (Some(s1), Some(s2)) =>
+                (perSample, svsm.getVariantAsOption(v1), svsm.getVariantAsOption(v2)) match {
+                  case (false, _, _) =>
+                    Iterator(Row.fromSeq(key.toSeq ++ Seq(v1, v1a, v2, v2a, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)))
+                  case (true, Some(s1), Some(s2)) =>
                     val samples = s1.keys.toSet.intersect(s2.keys.toSet)
-
                     if (samples.isEmpty)
                       Iterator(Row.fromSeq(key.toSeq ++ Seq(v1, v1a, v2, v2a, null, null, genotypeCountsIndexedSeq, haplotypeCountsIndexedSeq, probOnSameHaplotypeWithEM)))
                     else {
@@ -72,11 +73,11 @@ object PhaseEM {
 
     }
 
-    vdsToKeyTable(vds, vaKeys, saKeys, numberPartitions)(flatMapOp)
+    vdsToKeyTable(vds, vaKeys, saKeys, numberPartitions, perSample)(flatMapOp)
 
   }
 
-  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], numberPartitions: Int, bySample: Boolean): KeyTable = {
+  def apply(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], numberPartitions: Int, bySample: Boolean, perSample: Boolean): KeyTable = {
 
     val flatMapOp = (key: Row, svm: SparseVariantSampleMatrix) => {
       svm.variants.toIterator.flatMap {
@@ -103,20 +104,26 @@ object PhaseEM {
                 Phasing.probOnSameHaplotypeWithEM(haplotypeCounts).getOrElse(null)
               )
 
-              gts.map {
-                case (_, s, g1, g2) =>
-                  Row.fromSeq(key.toSeq ++ Seq(res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6, res._7) )
+              perSample match {
+                case true =>
+                  gts.map {
+                    case (_, s, g1, g2) =>
+                      Row.fromSeq(key.toSeq ++ Seq(res._1, res._2, res._3, res._4, s, svm.getSampleAnnotations(s), res._5, res._6, res._7))
+                  }
+                case _ =>
+                  Iterator(Row.fromSeq(key.toSeq ++ Seq(res._1, res._2, res._3, res._4, res._5, res._6, res._7)))
               }
+
           }
 
       }
 
     }
 
-    vdsToKeyTable(vds, vaKeys, saKeys, numberPartitions)(flatMapOp)
+    vdsToKeyTable(vds, vaKeys, saKeys, numberPartitions, perSample)(flatMapOp)
   }
 
-  def vdsToKeyTable(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int)
+  def vdsToKeyTable(vds: VariantDataset, vaKeys: Array[String], saKeys: Array[String], number_partitions: Int, perSample: Boolean)
     (flatMapOp: (Row, SparseVariantSampleMatrix) => TraversableOnce[Row]): KeyTable = {
 
 
@@ -144,17 +151,28 @@ object PhaseEM {
 
     val result = svsmRDD.flatMap { case (key, svm) => flatMapOp(key, svm) }
 
-    val valueTypes = Array(
-      ("v1", TVariant),
-      ("va1", vds.vaSignature),
-      ("v2", TVariant),
-      ("va2", vds.vaSignature),
-      ("s", TString),
-      ("sa", vds.saSignature),
-      ("genotype_counts", TArray(TInt)),
-      ("haplotype_counts", TArray(TDouble)),
-      ("prob_same_haplotype", TDouble)
-    )
+    val valueTypes = perSample match {
+      case true => Array(
+        ("v1", TVariant),
+        ("va1", vds.vaSignature),
+        ("v2", TVariant),
+        ("va2", vds.vaSignature),
+        ("s", TString),
+        ("sa", vds.saSignature),
+        ("genotype_counts", TArray(TInt)),
+        ("haplotype_counts", TArray(TDouble)),
+        ("prob_same_haplotype", TDouble)
+      )
+      case _ => Array(
+        ("v1", TVariant),
+        ("va1", vds.vaSignature),
+        ("v2", TVariant),
+        ("va2", vds.vaSignature),
+        ("genotype_counts", TArray(TInt)),
+        ("haplotype_counts", TArray(TDouble)),
+        ("prob_same_haplotype", TDouble)
+      )
+    }
 
     val ktSignature = TStruct(
       (vaKeys.zip(vaKeysQueriers.map(_._1)) ++

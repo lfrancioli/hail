@@ -694,16 +694,19 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     KinshipMatrix(vds.hc, vds.sSignature, rrm, vds.stringSampleIds.toArray, m)
   }
 
-  def phaseEM(vaKey: String, num_partitions: Int, saKey: String = null, variantPairs: KeyTable = null, bySample: Boolean = false) : KeyTable = {
+  def phaseEM(vaKey: String, num_partitions: Int, saKey: String = null, variantPairs: KeyTable = null, bySample: Boolean = false, perSample: Boolean = true) : KeyTable = {
+    if(bySample && perSample)
+      fatal("Only one of bySample or perSample can be specified (both doesn't make sense :))")
+
     val vaKeys = vaKey.split(",").filter(!_.isEmpty)
     if(vaKeys.isEmpty)
       fatal("phaseEM requires a non-empty va key.")
 
     val saKeys = if(saKey == null) Array[String]() else saKey.split(",").filter(!_.isEmpty)
     if(variantPairs == null)
-        PhaseEM(vds, vaKeys, saKeys, num_partitions, bySample)
+        PhaseEM(vds, vaKeys, saKeys, num_partitions, bySample, perSample)
     else
-      PhaseEM(vds, vaKeys, saKeys, num_partitions, variantPairs)
+      PhaseEM(vds, vaKeys, saKeys, num_partitions, variantPairs, perSample)
   }
 
   def phaseByTransmission(ped: Pedigree, vaKey: String,  number_partitions: Int) : KeyTable = {
