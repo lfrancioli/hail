@@ -1630,6 +1630,47 @@ object TStruct {
         .zipWithIndex
         .map{ case(f,i) => f.copy(index = i) }
 
+      TStruct(fields = updatedFields)
+    }
+
+    val finalStruct = structs.tail.foldLeft(structs.head){ case(s1, s2) => mergeTwoStructs(s1,s2) }
+
+    def getUpdater(originalStruct: TStruct, finalStruct: TStruct) : Deleter = {
+
+      val oldFieldsUpdaters = originalStruct.fields.map {
+        f =>
+          val newIndex = finalStruct.fieldIdx(f.name)
+          (f.typ, finalStruct.fields(newIndex).typ) match {
+            case (s1: TStruct, s2: TStruct) => Some(getUpdater(s1, s2))
+            case (t1, t2) => assert(t1 == t2)
+              None
+          }
+      }
+
+      val updater : Deleter = (a) => {
+        if (a == Annotation.empty)
+          Annotation.empty
+        else {
+          val oldRow = a.asInstanceOf[Row]
+          val newValues =  Array.fill[Annotation](finalStruct.fields.length)(Annotation.empty)
+          originalStruct.fields.foreach{
+            f =>
+              val newIndex = finalStruct.fieldIdx(f.name)
+              oldFieldsUpdaters(f.index) match {
+                case Some(updater) => newValues(newIndex) = updater(oldRow.get(f.index))
+                case None => newValues(newIndex) = oldRow.get(f.index)
+              }
+          }
+          Row.fromSeq(newValues)
+        }
+      }
+      updater
+    }
+
+    return (finalStruct, structs.map(getUpdater(_,finalStruct)))
+  }
+}
+
 final case class TStruct(fields: IndexedSeq[Field], override val required: Boolean = false) extends Type {
   assert(fields.zipWithIndex.forall { case (f, i) => f.index == i })
 
