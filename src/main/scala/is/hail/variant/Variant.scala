@@ -416,36 +416,6 @@ case class Variant(contig: String,
     Ordering.Iterable[AltAllele].compare(altAlleles, that.altAlleles)
   }
 
-  def unifyAltAlleles(other: Variant): Tuple2[Variant, Variant] = {
-
-    if (this.locus.compare(other.locus) != 0)
-      fatal("Allele representation can only be unified for variants at the same locus.")
-
-    val (longer, shorter, swapped) = if (ref.length > other.ref.length) (this, other, false) else (other, this, true)
-    val ref_diff = longer.ref.substring(shorter.ref.length)
-
-    if (longer.ref.substring(0, shorter.ref.length) != shorter.ref)
-      fatal(s"Variants ref bases mismatch when attempting to unify alleles for variants: ${ this } and ${ other }")
-
-    val unified_shorter = shorter.copy(
-      altAlleles = shorter.altAlleles.map { aa => aa.copy(ref = longer.ref, alt = aa.alt + ref_diff) }
-    )
-
-    if (swapped)
-      (unified_shorter, longer)
-    else
-      (longer, unified_shorter)
-  }
-
-  def alleleMapWithVariant(other: Variant) : IndexedSeq[Option[Int]] = {
-
-    val (thisUnified, otherUnified) = unifyAltAlleles(other)
-    val oldAlleleIndexMap = otherUnified.altAlleles.map(_.alt).zipWithIndex.toMap
-
-    thisUnified.altAlleles.map( aa => oldAlleleIndexMap.get(aa.alt))
-
-  }
-
   def altAlleleIndex(aa: AltAllele): Int = {
     val (longer, shorter, aaRefLonger) = if (ref.length > aa.ref.length) (ref, aa.ref, false) else (aa.ref, ref, true)
     val ref_diff = longer.substring(shorter.length)

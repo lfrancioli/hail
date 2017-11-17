@@ -210,12 +210,12 @@ class VariantDataset(HistoryMixin):
 
 
     @handle_py4j
-    def annotate_alleles_vds(self, other, code, match_star = True):
+    def annotate_alleles_vds(self, other, expr, match_star=True):
         """Annotate variants / alleles from another VDS
 
         **Examples**
 
-        Import a second VDS, ``vd2``, with annotations to merge into ``vds``:
+        Import a second VDS, ``vds2``, with annotations to merge into ``vds``:
 
         >>> vds2 = hc.read("data/example2.vds")
 
@@ -244,16 +244,17 @@ class VariantDataset(HistoryMixin):
            - ``aIndices`` (*Array[Int]*): The mapping from the alt allele index in the VDS and those in ``other``. If the other VDS was split, the entries are ``0`` for alleles that match. There is one entry for each allele in ``v``, entries contain ``NA`` if the allele was not found in ``other``.
            - ``global``: global annotations
 
-        :param VariantDataset other: Variant dataset to annotate with.
+        :param other: Variant dataset to annotate with.
+        :type other: :class:`.VariantDataset`
         :param str code: Annotation expression.
         :param bool match_star: Should you match star alleles
         :return: Annotated variant dataset.
         :rtype: :py:class:`.VariantDataset`
         """
 
-        if isinstance(code, list):
-            code = ",".join(code)
-        jvds = self._jvdf.annotateAllelesVDS(other._jvds, code, match_star)
+        if isinstance(expr, list):
+            code = ",".join(expr)
+        jvds = self._jvdf.annotateAllelesVDS(other._jvds, expr, match_star)
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j
