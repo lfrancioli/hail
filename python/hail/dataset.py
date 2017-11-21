@@ -208,9 +208,13 @@ class VariantDataset(HistoryMixin):
         jvds = self._jvdf.annotateAllelesExpr(expr, propagate_gq)
         return VariantDataset(self.hc, jvds)
 
-
     @handle_py4j
-    def annotate_alleles_vds(self, other, expr, match_star=True):
+    @record_method
+    @typecheck_method(other=vds_type,
+                      alleles_expr=oneof(strlike, listof(strlike)),
+                      variants_expr=nullable(oneof(strlike, listof(strlike))),
+                      match_star=bool)
+    def annotate_alleles_vds(self, other, alleles_expr, variants_expr=None, match_star=True):
         """Annotate variants / alleles from another VDS
 
         **Examples**
@@ -246,15 +250,18 @@ class VariantDataset(HistoryMixin):
 
         :param other: Variant dataset to annotate with.
         :type other: :class:`.VariantDataset`
-        :param str code: Annotation expression.
+        :param str or list of str alleles_expr: Alleles annotation expressions.
+        :param str or list of str variants_expr: Variants annotation expressions.
         :param bool match_star: Should you match star alleles
         :return: Annotated variant dataset.
         :rtype: :py:class:`.VariantDataset`
         """
 
-        if isinstance(expr, list):
-            code = ",".join(expr)
-        jvds = self._jvdf.annotateAllelesVDS(other._jvds, expr, match_star)
+        if isinstance(alleles_expr, list):
+            alleles_expr = ",".join(alleles_expr)
+        if isinstance(alleles_expr, list):
+            variants_expr = ",".join(alleles_expr)
+        jvds = self._jvdf.annotateAllelesVDS(other._jvds, alleles_expr, variants_expr, match_star)
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j

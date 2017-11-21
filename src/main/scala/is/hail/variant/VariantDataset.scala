@@ -156,8 +156,8 @@ g = let
     vds.copy2(rdd2 = newRDD2, vaSignature = finalType)
   }
 
-  def annotateAllelesVDS(other: VariantDataset, code: String, matchStar: Boolean = true): VariantDataset = {
-    AnnotateAllelesVDS(this.vds, other, code, matchStar)
+  def annotateAllelesVDS(other: VariantDataset, alleles_expr: String, variants_expr: Option[String] = None, matchStar: Boolean = true): VariantDataset = {
+    AnnotateAllelesVDS(this.vds, other, alleles_expr, variants_expr, matchStar)
   }
 
   def concordance(other: VariantDataset): (IndexedSeq[IndexedSeq[Long]], KeyTable, KeyTable) = {
