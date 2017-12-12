@@ -179,8 +179,6 @@ object PhaseEM {
       saKeys.zip(saKeysQueriers.map(_._1)) ++
       valueTypes).toSeq: _*)
     val kt = KeyTable(vds.hc, result, ktSignature, key = vaKeys)
-    kt.typeCheck()
-    info("Keytable types checked!")
     return kt
 
   }
