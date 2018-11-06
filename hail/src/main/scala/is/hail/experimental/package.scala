@@ -3,6 +3,7 @@ package is.hail
 import is.hail.stats._
 import breeze.linalg.{Vector, DenseVector, max, sum}
 import breeze.numerics._
+import is.hail.expr.types._
 
 package object experimental {
 
@@ -34,17 +35,20 @@ package object experimental {
   def calcFilterAlleleFreq(ac: Int, an: Int, ci: Double): Double = calcFilterAlleleFreq(ac, an, ci, lower = 1e-10, upper = 2, tol = 1e-7, precision = 1e-6)
 
 
-  def haplotypeFreqEM(gtCounts : Array[Int]) : Option[Array[Double]] = {
+  def probSameHapEM(n00: Int, n01: Int, n02: Int, n10: Int, n11: Int, n12: Int, n20: Int, n21: Int, n22: Int) : Option[Double] = {
+  //def probSameHapEM(gtCounts: Array[Double]) : Option[Double] = {
 
-    assert(gtCounts.size == 9, "haplotypeFreqEM requires genotype counts for the 9 possible genotype combinations.")
 
-    val _gtCounts = new DenseVector(gtCounts)
+    val _gtCounts = DenseVector(n00, n01, n02, n10, n11, n12, n20, n21, n22)
+    //val _gtCounts = new DenseVector(gtCounts)
+    assert(_gtCounts.size == 9, "haplotypeFreqEM requires genotype counts for the 9 possible genotype combinations.")
+
     val nSamples = sum(_gtCounts)
 
     //Needs some non-ref samples to compute
-    if(_gtCounts(0) >= nSamples){ return None}
 
     val nHaplotypes = 2.0*nSamples.toDouble
+    if(_gtCounts(0) >= nSamples){ return None}
 
     /**
       * Constant quantities for each of the different haplotypes:
@@ -79,7 +83,8 @@ package object experimental {
 
     }
 
-    return Some((p_next :* nHaplotypes).toArray)
+    val haplotypes = (p_next :* nHaplotypes)
+    return Some(haplotypes(0) * haplotypes(3) / (haplotypes(1) * haplotypes(2) + haplotypes(0) * haplotypes(3)))
   }
 
 }

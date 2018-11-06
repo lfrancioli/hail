@@ -42,6 +42,9 @@ object EmitFunctionBuilder {
 
   def apply[A: TypeInfo, B: TypeInfo, C: TypeInfo, D: TypeInfo, E: TypeInfo, F: TypeInfo, G: TypeInfo, R: TypeInfo]: EmitFunctionBuilder[AsmFunction7[A, B, C, D, E, F, G, R]] =
     new EmitFunctionBuilder[AsmFunction7[A, B, C, D, E, F, G, R]](Array(GenericTypeInfo[A], GenericTypeInfo[B], GenericTypeInfo[C], GenericTypeInfo[D], GenericTypeInfo[E], GenericTypeInfo[F], GenericTypeInfo[G]), GenericTypeInfo[R])
+
+  def apply[A: TypeInfo, B: TypeInfo, C: TypeInfo, D: TypeInfo, E: TypeInfo, F: TypeInfo, G: TypeInfo, H: TypeInfo, I: TypeInfo, R: TypeInfo]: EmitFunctionBuilder[AsmFunction9[A, B, C, D, E, F, G, H, I, R]] =
+    new EmitFunctionBuilder[AsmFunction9[A, B, C, D, E, F, G, H, I, R]](Array(GenericTypeInfo[A], GenericTypeInfo[B], GenericTypeInfo[C], GenericTypeInfo[D], GenericTypeInfo[E], GenericTypeInfo[F], GenericTypeInfo[G], GenericTypeInfo[H], GenericTypeInfo[I]), GenericTypeInfo[R])
 }
 
 trait FunctionWithHadoopConfiguration {
